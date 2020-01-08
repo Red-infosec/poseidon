@@ -1,7 +1,6 @@
 package profiles
 
 import (
-	"crypto/rsa"
 	"encoding/base64"
 	"math/rand"
 	"time"
@@ -10,6 +9,16 @@ import (
 
 	"github.com/xorrior/poseidon/pkg/utils/structs"
 )
+
+var PConfig = structs.Mainconfig{
+	"UUID_REPLACE",
+	false,
+	"AESPSK_REPLACE",
+	"http(s)://callback_host:callback_port/",
+	[]string{},
+	"Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en) AppleWebKit/419.3 (KHTML, like Gecko) Safari/419.3",
+	"SLEEP_REPLACE",
+}
 
 var (
 	UUID                         = "UUID"
@@ -20,6 +29,7 @@ var (
 	UserAgent                    = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en) AppleWebKit/419.3 (KHTML, like Gecko) Safari/419.3" // Change this value
 	Sleep                        = 10
 	HostHeader                   = "" // Use an empty string if it's not being used
+	ApiVersion                   = "1.4"
 	seededRand        *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
@@ -64,28 +74,8 @@ type Profile interface {
 	GetFile(fileid string) []byte
 	// C2 profile helper function to send file chunks for file downloads and screenshots
 	SendFileChunks(task structs.Task, data []byte)
-
-	Header() string
-	SetHeader(hostname string)
-	URL() string
-	SetURL(url string)
-	SetURLs(urls []string)
-	SleepInterval() int
-	SetSleepInterval(interval int)
 	C2Commands() []string
 	SetC2Commands(commands []string)
-	XKeys() bool
-	SetXKeys(exchangingkeys bool)
-	SetUserAgent(ua string)
-	GetUserAgent() string
-	ApfID() string
-	SetApfellID(newID string)
-	UniqueID() string
-	SetUniqueID(newUUID string)
-	AesPreSharedKey() string
-	SetAesPreSharedKey(newkey string)
-	RsaKey() *rsa.PrivateKey
-	SetRsaKey(newKey *rsa.PrivateKey)
 }
 
 func NewInstance() interface{} {

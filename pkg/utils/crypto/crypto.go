@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -105,13 +107,17 @@ func AesEncrypt(key []byte, plainBytes []byte) []byte {
 
 	cbc.CryptBlocks(encBytes, plainBytes)
 	//log.Println("Encrypted message size: ", len(encBytes))
-	encryptedByptes := append(iv, encBytes...)
-	return encryptedByptes
+	encryptedByptes := append(iv, encBytes...)                   // IV + Ciphertext
+	h := hmac.New(sha256.New, key)                               // New hmac with key
+	h.Write(encryptedByptes)                                     // Write bytes to hmac
+	hmacEncryptedBytes := append(encryptedByptes, h.Sum(nil)...) // IV + Ciphertext + hmac
+	return hmacEncryptedBytes
 }
 
 //AesDecrypt - Decrypt AES encrypted data with the key
 func AesDecrypt(key []byte, encryptedBytes []byte) []byte {
 	//log.Printf("Encrypted data size: %d\n", len(encryptedBytes))
+	// TODO: Change the return type to allow for returning error messages
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		//log.Println("Key error: ", err)
@@ -123,9 +129,17 @@ func AesDecrypt(key []byte, encryptedBytes []byte) []byte {
 		return make([]byte, 0)
 	}
 
-	iv := encryptedBytes[:aes.BlockSize]
+	iv := encryptedBytes[:aes.BlockSize]                                // IV
+	hmacHash := encryptedBytes[(len(encryptedBytes) - 32):]             // hmac
+	encryptedBytesNoHmac := encryptedBytes[:(len(encryptedBytes) - 32)] // IV + Ciphertext bytes
+	h := hmac.New(sha256.New, key)                                      // Create a new hmac
+	h.Write(encryptedBytesNoHmac)                                       // Write the IV + CipherText to the new hmac
+	verified := hmac.Equal(h.Sum(nil), hmacHash)                        // Compare the generated hmac to the one retrieved from the ciphertext
+	if verified != true {
+		return make([]byte, 0)
+	}
 	//log.Println("IV : ", string(iv))
-	encryptedBytes = encryptedBytes[aes.BlockSize:]
+	encryptedBytes = encryptedBytes[aes.BlockSize:(len(encryptedBytes) - 32)]
 	//log.Println("Encrypted w/o IV length ", len(encryptedBytes))
 	if len(encryptedBytes)%aes.BlockSize != 0 {
 		//log.Println("ciphertext not a muiltiple of the block size")

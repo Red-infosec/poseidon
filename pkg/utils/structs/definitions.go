@@ -17,6 +17,7 @@ type Mainconfig struct {
 	BaseURLS  []string `json:"baseurls"`
 	UserAgent string   `json:"useragent"`
 	Sleep     string   `json:"sleep"`
+	HostHeader string `json:"hostheader"`
 }
 
 type CheckInServerPayload struct {

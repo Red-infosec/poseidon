@@ -19,9 +19,7 @@ import (
 	"github.com/xorrior/poseidon/pkg/utils/structs"
 )
 
-var (
-	websocketEndpoint = "socket"
-)
+var websocketEndpoint = "socket"
 
 type C2Websockets struct {
 	HostHeader     string

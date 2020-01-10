@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// type definition for dynamic json envelopes
-type Msg map[string]interface{}
-
 // Struct definition for main profile config
 type Mainconfig struct {
 	UUID       string   `json:"uuid"`
@@ -28,7 +25,7 @@ type CheckInMessage struct {
 	OS             string `json:"os"`
 	User           string `json:"user"`
 	Host           string `json:"host"`
-	Pid            string `json:"pid"`
+	Pid            int    `json:"pid"`
 	UUID           string `json:"uuid"`
 	Architecture   string `json:"architecture"`
 	Domain         string `json:"domain"`
@@ -75,7 +72,7 @@ type TaskRequestMessageResponse struct {
 
 type Task struct {
 	Command   string `json:"command"`
-	Params    string `json:"params"`
+	Params    string `json:"parameters"`
 	Timestamp int    `json:"timestamp"`
 	TaskID    string `json:"task_id"`
 	Job       *Job
@@ -114,7 +111,7 @@ type ServerResponse struct {
 // Struct definitions for file downloads and uploads
 type FileDownloadInitialMessage struct {
 	NumChunks int    `json:"total_chunks"`
-	TaskID    int    `json:"task"`
+	TaskID    string `json:"task"`
 	FullPath  string `json:"full_path"`
 }
 

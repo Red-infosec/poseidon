@@ -13,7 +13,7 @@ import (
 
 // PConfig - Persistent C2 config values
 var PConfig = structs.Mainconfig{
-	"UUI",                                    // Unique identifier from Apfell
+	"UUID",                                   // Unique identifier from Apfell
 	"T",                                      // Key exchange boolean
 	"AESPSK",                                 // AES Pre-shared key from Apfell
 	"http(s)://callback_host:callback_port/", // Callback url
@@ -94,8 +94,7 @@ func EncryptMessage(msg []byte, k string) []byte {
 
 func DecryptMessage(msg []byte, k string) []byte {
 	key, _ := base64.StdEncoding.DecodeString(k)
-	decMsg, _ := base64.StdEncoding.DecodeString(string(msg))
-	return crypto.AesDecrypt(key, decMsg)
+	return crypto.AesDecrypt(key, msg)
 }
 
 func GenerateSessionID() string {

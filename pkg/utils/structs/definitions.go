@@ -37,7 +37,7 @@ type CheckInMessage struct {
 
 type CheckInMessageResponse struct {
 	Action string `json:"action"`
-	ID     string `json:"uuid"`
+	ID     string `json:"id"`
 	Status string `json:"status"`
 }
 
@@ -71,10 +71,10 @@ type TaskRequestMessageResponse struct {
 }
 
 type Task struct {
-	Command   string `json:"command"`
-	Params    string `json:"parameters"`
-	Timestamp int    `json:"timestamp"`
-	TaskID    string `json:"task_id"`
+	Command   string  `json:"command"`
+	Params    string  `json:"parameters"`
+	Timestamp float64 `json:"timestamp"`
+	TaskID    string  `json:"id"`
 	Job       *Job
 }
 

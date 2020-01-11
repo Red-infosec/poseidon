@@ -10,10 +10,12 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 )
 
 // PKCS7 errors.
@@ -60,7 +62,7 @@ func RsaDecryptCipherBytes(encryptedData []byte, privateKey *rsa.PrivateKey) []b
 	decryptedData, err := rsa.DecryptOAEP(hash, rand.Reader, privateKey, encryptedData, nil)
 	//decryptedData, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, encryptedData)
 	if err != nil {
-		//log.Println("Failed to decrypt data with: ", err.Error())
+		log.Println("Failed to decrypt data with: ", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -70,14 +72,14 @@ func RsaDecryptCipherBytes(encryptedData []byte, privateKey *rsa.PrivateKey) []b
 func RsaEncryptBytes(plainBytes []byte, publicKey []byte) []byte {
 	pubKey, err := x509.ParsePKCS1PublicKey(publicKey)
 	if err != nil {
-		//log.Println("Error encrypting bytes: ", err)
+		log.Println("Error encrypting bytes: ", err)
 		return make([]byte, 0)
 	}
 
 	hash := sha1.New()
 	encryptedData, _ := rsa.EncryptOAEP(hash, rand.Reader, pubKey, plainBytes, nil)
 	if err != nil {
-		//log.Println("Unable to encrypt ", decErr)
+		log.Println("Unable to encrypt ", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -90,13 +92,13 @@ func AesEncrypt(key []byte, plainBytes []byte) []byte {
 	//log.Printf("Unencrypted data size: %d\n", len(plainBytes))
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		//log.Println("Key error: ", err.Error())
+		log.Println("Key error: ", err.Error())
 		return make([]byte, 0)
 	}
 
 	iv := make([]byte, aes.BlockSize)
 	if _, err = io.ReadFull(rand.Reader, iv); err != nil {
-		//log.Println(err.Error())
+		log.Println(err.Error())
 		return make([]byte, 0)
 	}
 
@@ -116,43 +118,44 @@ func AesEncrypt(key []byte, plainBytes []byte) []byte {
 
 //AesDecrypt - Decrypt AES encrypted data with the key
 func AesDecrypt(key []byte, encryptedBytes []byte) []byte {
-	//log.Printf("Encrypted data size: %d\n", len(encryptedBytes))
 	// TODO: Change the return type to allow for returning error messages
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		//log.Println("Key error: ", err)
+		log.Println("Key error: ", err)
 		return make([]byte, 0)
 	}
 
 	if len(encryptedBytes) < aes.BlockSize {
-		//log.Println("Ciphertext too short")
+		log.Println("Ciphertext too short")
 		return make([]byte, 0)
 	}
 
-	iv := encryptedBytes[:aes.BlockSize]                                // IV
-	hmacHash := encryptedBytes[(len(encryptedBytes) - 32):]             // hmac
-	encryptedBytesNoHmac := encryptedBytes[:(len(encryptedBytes) - 32)] // IV + Ciphertext bytes
-	h := hmac.New(sha256.New, key)                                      // Create a new hmac
-	h.Write(encryptedBytesNoHmac)                                       // Write the IV + CipherText to the new hmac
-	verified := hmac.Equal(h.Sum(nil), hmacHash)                        // Compare the generated hmac to the one retrieved from the ciphertext
+	iv := encryptedBytes[:aes.BlockSize]                    // gets IV, bytes 0 - 16
+	hmacHash := encryptedBytes[(len(encryptedBytes) - 32):] // gets the hmac, the last 32 bytes of the array
+	encryptedPortion := encryptedBytes[aes.BlockSize:(len(encryptedBytes) - 32)]
+	h := hmac.New(sha256.New, key)
+	h.Write(encryptedBytes[:(len(encryptedBytes) - 32)])
+	verified := hmac.Equal(h.Sum(nil), hmacHash)
 	if verified != true {
+		gen := hex.EncodeToString(h.Sum(nil))
+		received := hex.EncodeToString(hmacHash)
+		log.Printf("HMAC verification failed\n Received HMAC: %s\n Generated HMAC: %s\n", received, gen)
 		return make([]byte, 0)
 	}
 	//log.Println("IV : ", string(iv))
-	encryptedBytes = encryptedBytes[aes.BlockSize:(len(encryptedBytes) - 32)]
-	//log.Println("Encrypted w/o IV length ", len(encryptedBytes))
-	if len(encryptedBytes)%aes.BlockSize != 0 {
-		//log.Println("ciphertext not a muiltiple of the block size")
+	if len(encryptedPortion)%aes.BlockSize != 0 {
+		log.Println("ciphertext not a muiltiple of the block size")
 		return make([]byte, 0)
 	}
-	//log.Println("Encrypted bytes length without iv ", len(encryptedBytes))
 	mode := cipher.NewCBCDecrypter(block, iv)
 	//decrypted := make([]byte, len(encryptedBytes))
-	unEncryptedBytes := make([]byte, len(encryptedBytes))
-	mode.CryptBlocks(unEncryptedBytes, encryptedBytes)
-	//log.Println("Decrypted bytes with padding length: ", len(unEncryptedBytes))
-	data, _ := pkcs7Unpad(unEncryptedBytes, aes.BlockSize)
-
+	unEncryptedBytes := make([]byte, len(encryptedPortion))
+	mode.CryptBlocks(unEncryptedBytes, encryptedPortion)
+	data, err := pkcs7Unpad(unEncryptedBytes, aes.BlockSize)
+	if err != nil {
+		log.Printf("padding error: %s", err.Error())
+		return make([]byte, 0)
+	}
 	return data
 
 }

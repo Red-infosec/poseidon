@@ -194,9 +194,16 @@ func main() {
 					// File upload
 
 					fileDetails := structs.FileUploadParams{}
+					log.Printf("File upload response struct %s", string(task.Tasks[0].Params))
 					err := json.Unmarshal([]byte(task.Tasks[0].Params), &fileDetails)
 					if err != nil {
-						profile.PostResponse(task.Tasks[0], err.Error())
+						errResp := structs.Response{}
+						errResp.Completed = true
+						errResp.TaskID = task.Tasks[0].TaskID
+						errResp.UserOutput = err.Error()
+
+						encErrResp, _ := json.Marshal(errResp)
+						profile.PostResponse(task.Tasks[0], string(encErrResp))
 						break
 					}
 

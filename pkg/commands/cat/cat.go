@@ -14,6 +14,7 @@ func Run(task structs.Task, threadChannel chan<- structs.ThreadMsg) {
 
 	tMsg.TaskItem = task
 	if err != nil {
+
 		tMsg.TaskResult = []byte(err.Error())
 		tMsg.Error = true
 		threadChannel <- tMsg

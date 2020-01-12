@@ -87,19 +87,20 @@ type Job struct {
 // Struct definitions for TaskResponse Messages
 type TaskResponseMessage struct {
 	Action    string            `json:"action"`
-	Responses []Response        `json:"responses"`
+	Responses []json.RawMessage `json:"responses"`
 	Delegates []json.RawMessage `json:"delegates"`
 }
 
 type Response struct {
-	TaskID   string          `json:"task_id"`
-	Response json.RawMessage `json:"response"`
+	TaskID     string `json:"task_id"`
+	UserOutput string `json:"user_output"`
+	Completed  bool   `json:"completed"`
 }
 
 type TaskResponseMessageResponse struct {
-	Action    string             `json:"action"`
-	Responses []ServerResponse   `json:"responses"`
-	Delegates []*json.RawMessage `json:"delegates"`
+	Action    string            `json:"action"`
+	Responses []json.RawMessage `json:"responses"`
+	Delegates []json.RawMessage `json:"delegates"`
 }
 
 type ServerResponse struct {
@@ -108,10 +109,14 @@ type ServerResponse struct {
 	Error  string `json:"error"`
 }
 
+type UserOutput struct {
+	Output []byte `json:"user_output"`
+}
+
 // Struct definitions for file downloads and uploads
 type FileDownloadInitialMessage struct {
 	NumChunks int    `json:"total_chunks"`
-	TaskID    string `json:"task"`
+	TaskID    string `json:"task_id"`
 	FullPath  string `json:"full_path"`
 }
 
@@ -124,6 +129,7 @@ type FileDownloadChunkMessage struct {
 	ChunkNum  int    `json:"chunk_num"`
 	FileID    string `json:"file_id"`
 	ChunkData string `json:"chunk_data"`
+	TaskID    string `json:"task_id"`
 }
 
 type FileUploadChunkMessage struct {

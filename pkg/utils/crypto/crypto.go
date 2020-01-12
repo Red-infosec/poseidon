@@ -53,14 +53,11 @@ func GenerateRSAKeyPair() ([]byte, *rsa.PrivateKey) {
 }
 
 func RsaDecryptCipherBytes(encryptedData []byte, privateKey *rsa.PrivateKey) []byte {
-	//log.Println("In RsaDecryptCipherBytes")
 
 	hash := sha1.New()
-	//decryptedData, err := rsa.DecryptOAEP(hash, rand.Reader, privateKey, encryptedData, nil)
-	//log.Println("Encrypted data size: ", len(encryptedData))
 
 	decryptedData, err := rsa.DecryptOAEP(hash, rand.Reader, privateKey, encryptedData, nil)
-	//decryptedData, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, encryptedData)
+
 	if err != nil {
 		log.Println("Failed to decrypt data with: ", err.Error())
 		return make([]byte, 0)
@@ -89,7 +86,6 @@ func RsaEncryptBytes(plainBytes []byte, publicKey []byte) []byte {
 // https://gist.github.com/mickelsonm/e1bf365a149f3fe59119
 
 func AesEncrypt(key []byte, plainBytes []byte) []byte {
-	//log.Printf("Unencrypted data size: %d\n", len(plainBytes))
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		log.Println("Key error: ", err.Error())
@@ -104,11 +100,9 @@ func AesEncrypt(key []byte, plainBytes []byte) []byte {
 
 	cbc := cipher.NewCBCEncrypter(block, iv)
 	plainBytes, _ = pkcs7Pad(plainBytes, aes.BlockSize)
-	//log.Println("Padded message size: ", len(plainBytes))
 	encBytes := make([]byte, len(plainBytes))
 
 	cbc.CryptBlocks(encBytes, plainBytes)
-	//log.Println("Encrypted message size: ", len(encBytes))
 	encryptedByptes := append(iv, encBytes...)                   // IV + Ciphertext
 	h := hmac.New(sha256.New, key)                               // New hmac with key
 	h.Write(encryptedByptes)                                     // Write bytes to hmac
@@ -142,13 +136,13 @@ func AesDecrypt(key []byte, encryptedBytes []byte) []byte {
 		log.Printf("HMAC verification failed\n Received HMAC: %s\n Generated HMAC: %s\n", received, gen)
 		return make([]byte, 0)
 	}
-	//log.Println("IV : ", string(iv))
+
 	if len(encryptedPortion)%aes.BlockSize != 0 {
 		log.Println("ciphertext not a muiltiple of the block size")
 		return make([]byte, 0)
 	}
 	mode := cipher.NewCBCDecrypter(block, iv)
-	//decrypted := make([]byte, len(encryptedBytes))
+
 	unEncryptedBytes := make([]byte, len(encryptedPortion))
 	mode.CryptBlocks(unEncryptedBytes, encryptedPortion)
 	data, err := pkcs7Unpad(unEncryptedBytes, aes.BlockSize)

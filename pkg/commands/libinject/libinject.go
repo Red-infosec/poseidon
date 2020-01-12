@@ -11,7 +11,6 @@ import (
 // Inject C source taken from: http://www.newosxbook.com/src.jl?tree=listings&file=inject.c
 type Injection interface {
 	TargetPid() int
-	Shellcode() []byte
 	Success() bool
 	SharedLib() string
 }
@@ -45,7 +44,7 @@ func Run(task structs.Task, threadChannel chan<- structs.ThreadMsg) {
 	result, err := injectLibrary(args.PID, args.LibraryPath)
 
 	if err != nil {
-		log.Println("Failed to inject shellcode:", err.Error())
+		log.Println("Failed to inject library:", err.Error())
 		tMsg.Error = true
 		tMsg.TaskResult = []byte(err.Error())
 		threadChannel <- tMsg

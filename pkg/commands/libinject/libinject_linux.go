@@ -40,10 +40,6 @@ func (l *LinuxInjection) Success() bool {
 	return l.Successful
 }
 
-func (l *LinuxInjection) Shellcode() []byte {
-	return l.Payload
-}
-
 func (l *LinuxInjection) SharedLib() string {
 	return l.LibraryPath
 }

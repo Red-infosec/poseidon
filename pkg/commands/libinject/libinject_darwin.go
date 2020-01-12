@@ -247,10 +247,6 @@ func (l *DarwinInjection) Success() bool {
 	return l.Successful
 }
 
-func (l *DarwinInjection) Shellcode() []byte {
-	return l.Payload
-}
-
 func (l *DarwinInjection) SharedLib() string {
 	return l.LibraryPath
 }

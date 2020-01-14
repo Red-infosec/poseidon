@@ -28,31 +28,6 @@ var (
 	ApiVersion            = "1.4"
 )
 
-const (
-	//CheckInMsg - Messages for apfell
-	CheckInMsg = 0
-	//EKE - Messages for apfell EKE AES
-	EKE = 1
-	//AES - Messages for apfell static AES
-	AES = 2
-	//TaskMsg - Messages for apfell tasks
-	TaskMsg = 3
-	//ResponseMsg - Messages for apfell task responses
-	ResponseMsg = 4
-	//FileMsg - Messages for apfell file downloads/uploads
-	FileMsg = 5
-	// ID Type for UUID
-	UUIDType = 6
-	// ID Type for ApfellID
-	ApfellIDType = 7
-	// ID Type for FileID
-	FileIDType = 8
-	// ID Type for session ID
-	SESSIDType = 9
-	// ID Type for Task ID
-	TASKIDType = 10
-)
-
 //Profile - Primary interface for apfell C2 profiles
 type Profile interface {
 	CheckIn(ip string, pid int, user string, host string) interface{} // CheckIn method for sending the initial checkin to the server
@@ -81,6 +56,7 @@ type Profile interface {
 	SetAesPreSharedKey(newkey string)
 	RsaKey() *rsa.PrivateKey
 	SetRsaKey(newKey *rsa.PrivateKey)
+	ProfileType() string
 }
 
 func NewInstance() interface{} {

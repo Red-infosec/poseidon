@@ -95,6 +95,7 @@ type Response struct {
 	TaskID     string `json:"task_id"`
 	UserOutput string `json:"user_output"`
 	Completed  bool   `json:"completed"`
+	Status     string `json:"status"`
 }
 
 type TaskResponseMessageResponse struct {
